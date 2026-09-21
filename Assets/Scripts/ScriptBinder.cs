@@ -96,6 +96,54 @@ public class ScriptBinder : MonoBehaviour
     }
 
     /// <summary>
+    /// Fija el script SpriteAnimationLoop al GameObject objetivo mediante AddComponent.
+    /// </summary>
+    public SpriteAnimationLoop AttachSpriteAnimationLoop(GameObject target = null)
+    {
+        GameObject go = target != null ? target : targetGameObject;
+        if (go == null) return null;
+
+        var existing = go.GetComponent<SpriteAnimationLoop>();
+        if (existing != null)
+        {
+            OnStatusLog?.Invoke($"ℹ️ El script 'SpriteAnimationLoop' ya está fijado a [{go.name}].");
+            return existing;
+        }
+
+        // Asegurar que tenga un Image para renderizar sprites
+        if (go.GetComponent<Image>() == null && go.GetComponent<SpriteRenderer>() == null)
+        {
+            go.AddComponent<Image>();
+        }
+
+        var comp = go.AddComponent<SpriteAnimationLoop>();
+        OnStatusLog?.Invoke($"✅ Script 'SpriteAnimationLoop' FIJADO con éxito a [{go.name}]. ¡Animación 8 Sprites lista!");
+        OnComponentsChanged?.Invoke();
+        return comp;
+    }
+
+    /// <summary>
+    /// Fija el script GameLoopController al GameObject objetivo mediante AddComponent.
+    /// </summary>
+    public GameLoopController AttachGameLoopController(GameObject target = null)
+    {
+        GameObject go = target != null ? target : targetGameObject;
+        if (go == null) return null;
+
+        var existing = go.GetComponent<GameLoopController>();
+        if (existing != null)
+        {
+            OnStatusLog?.Invoke($"ℹ️ El script 'GameLoopController' ya está fijado a [{go.name}].");
+            return existing;
+        }
+
+        var comp = go.AddComponent<GameLoopController>();
+        OnStatusLog?.Invoke($"✅ Script 'GameLoopController' FIJADO con éxito a [{go.name}]. ¡Bucle de juego activo!");
+        OnComponentsChanged?.Invoke();
+        return comp;
+    }
+
+    /// <summary>
     /// Remueve/desacopla un componente específico del GameObject en tiempo de ejecución.
     /// </summary>
     public bool RemoveComponentByName(string typeName, GameObject target = null)

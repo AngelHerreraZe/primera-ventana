@@ -8,10 +8,12 @@ using UnityEngine.InputSystem.UI;
 
 /// <summary>
 /// Aplicación Interactiva Responsiva y Modular para Unity.
-/// Cumple con todos los criterios:
-/// 1. Arrastre de Sprites funcional mediante eventos y botones de control.
+/// Cumple con todos los criterios de la actividad:
+/// 1. Arrastre de Sprites funcional mediante eventos del EventSystem y botones de control.
 /// 2. Control interactivo de fuentes tipográficas (familias, tamaños, estilos, colores y efectos).
 /// 3. Fijación de scripts a GameObjects en tiempo de ejecución (AddComponent) y navegación funcional con historial, migas de pan y pestañas.
+/// 4. Bucle de Videojuego (Game Loop) configurable con control de tiempo, estados y telemetría en tiempo real.
+/// 5. Animación cuadro a cuadro en bucle continuo utilizando ocho (8) sprites (Fuego, Caminata, Gema 3D y Orbe de Energía).
 /// </summary>
 public class PrimeraVentana : MonoBehaviour
 {
@@ -29,6 +31,7 @@ public class PrimeraVentana : MonoBehaviour
     static readonly Color AccentDanger    = new Color(0.94f, 0.27f, 0.38f, 1f); // Rosa / Coral
     static readonly Color AccentPurple    = new Color(0.63f, 0.38f, 0.96f, 1f); // Violeta neón
     static readonly Color AccentCyan      = new Color(0.12f, 0.75f, 0.88f, 1f); // Cian brillante
+    static readonly Color AccentFlame     = new Color(1.00f, 0.45f, 0.10f, 1f); // Fuego naranja
     static readonly Color TextWhite       = new Color(0.98f, 0.99f, 1.00f, 1f);
     static readonly Color TextMuted       = new Color(0.60f, 0.65f, 0.75f, 1f);
     static readonly Color TextDimmed      = new Color(0.40f, 0.44f, 0.54f, 1f);
@@ -37,7 +40,7 @@ public class PrimeraVentana : MonoBehaviour
     static readonly Color ButtonHover     = new Color(0.26f, 0.33f, 0.46f, 1f);
 
     // ==========================================
-    // Sprites Procedurales
+    // Sprites Procedurales Básicos
     // ==========================================
     Sprite _roundedSprite;
     Sprite _circleSprite;
@@ -46,12 +49,21 @@ public class PrimeraVentana : MonoBehaviour
     Sprite _shieldSprite;
 
     // ==========================================
+    // Sets de Animación de Ocho (8) Sprites
+    // ==========================================
+    Sprite[] _fireSprites   = new Sprite[8]; // Fuego / Hoguera animada (8 cuadros)
+    Sprite[] _walkSprites   = new Sprite[8]; // Ciclo de caminata (8 cuadros)
+    Sprite[] _gemSprites    = new Sprite[8]; // Gema 3D giratoria (8 cuadros)
+    Sprite[] _energySprites = new Sprite[8]; // Orbe de energía / Pulso mágico (8 cuadros)
+
+    // ==========================================
     // Componentes del Sistema Principal
     // ==========================================
     Canvas _canvas;
     CanvasScaler _canvasScaler;
     NavigationController _navigationController;
     ScriptBinder _scriptBinder;
+    GameLoopController _gameLoopController;
 
     // UI Global
     Text _statusText;
@@ -76,9 +88,23 @@ public class PrimeraVentana : MonoBehaviour
     GameObject _testTargetGameObject;
     Text _attachedScriptsText;
 
-    // Puntos de Anclaje
-    RectTransform _anchorTargetPin;
-    Text _anchorDetailsText;
+    // Módulo: Bucle de Videojuego y Animación 8 Sprites
+    SpriteAnimationLoop _spriteAnimationLoop;
+    DraggableSprite _animDraggableSprite;
+    Image _animatedSpriteImg;
+    Text _loopStateBadge;
+    Text _loopTelemetryFps;
+    Text _loopTelemetryDelta;
+    Text _loopTelemetryFrames;
+    Text _loopTelemetryTime;
+    Text _loopTimeScaleText;
+    Text _animActiveFrameBadge;
+    Text _animFpsText;
+    Text _animSequenceTitle;
+    Text _animLoopCountText;
+    readonly Image[] _storyboardThumbnails = new Image[8];
+    readonly Image[] _storyboardBorders = new Image[8];
+    readonly Text[] _storyboardLabels = new Text[8];
 
     // Presets de dispositivos
     struct DevicePreset
@@ -109,6 +135,7 @@ public class PrimeraVentana : MonoBehaviour
     void Awake()
     {
         GenerateProceduralSprites();
+        Generate8SpriteSets();
         EnsureEventSystem();
         BuildUI();
     }
@@ -119,6 +146,7 @@ public class PrimeraVentana : MonoBehaviour
         AddLog("✓ Módulo 'Arrastrar Sprite' configurado con soporte para eventos y botones.");
         AddLog("✓ Módulo 'Controlar Fuentes' vinculado con FontController.");
         AddLog("✓ Módulo 'Fijar Scripts y Navegación' activo con NavigationController y ScriptBinder.");
+        AddLog("✓ Módulo 'Bucle de Videojuego y Animación con 8 Sprites' activo con GameLoopController y SpriteAnimationLoop.");
 
         // Inicializar navegación en la página de inicio
         if (_navigationController != null)
@@ -153,10 +181,12 @@ public class PrimeraVentana : MonoBehaviour
         // 2. Controladores principales
         _navigationController = canvasGo.AddComponent<NavigationController>();
         _scriptBinder = canvasGo.AddComponent<ScriptBinder>();
+        _gameLoopController = canvasGo.AddComponent<GameLoopController>();
 
         _navigationController.OnStatusLog = msg => AddLog(msg);
         _scriptBinder.OnStatusLog = msg => AddLog(msg);
         _scriptBinder.OnComponentsChanged = RefreshAttachedScriptsDisplay;
+        _gameLoopController.OnStatusLog = msg => AddLog(msg);
 
         // 3. Fondo general
         var background = Panel(canvasGo.transform, BgDark);
@@ -176,7 +206,7 @@ public class PrimeraVentana : MonoBehaviour
         masterVGroup.childForceExpandWidth = true;
         masterVGroup.childForceExpandHeight = false;
 
-        // 5. Header / Barra Superior con Logo, Breadcrumbs y Pestañas
+        // 5. Header / Barra Superior con Logo, Breadcrumbs y Pestañas (6 Pestañas)
         BuildHeader(masterContainer.transform);
 
         // 6. Área de Contenido Central (Páginas)
@@ -184,29 +214,31 @@ public class PrimeraVentana : MonoBehaviour
         contentArea.name = "ContentArea";
         Flex(contentArea.gameObject, flexH: 1);
 
-        // Construcción de las 5 Páginas Principales
+        // Construcción de las 6 Páginas Principales
         var page0 = BuildPageInicio(contentArea.transform);
         var page1 = BuildPageArrastrarSprite(contentArea.transform);
         var page2 = BuildPageControlFuentes(contentArea.transform);
         var page3 = BuildPageFijarScripts(contentArea.transform);
         var page4 = BuildPageNavegacionYDispositivos(contentArea.transform);
+        var page5 = BuildPageBucleYAnimacion(contentArea.transform);
 
-        // Registrar páginas en NavigationController
+        // Registrar 6 páginas en NavigationController
         _navigationController.RegisterPage("inicio", "Inicio", "🏠", page0, _navTabButtons[0], _navTabIndicators[0]);
         _navigationController.RegisterPage("sprites", "Arrastrar Sprite", "🎯", page1, _navTabButtons[1], _navTabIndicators[1]);
         _navigationController.RegisterPage("fuentes", "Control de Fuentes", "🔤", page2, _navTabButtons[2], _navTabIndicators[2]);
         _navigationController.RegisterPage("scripts", "Fijar Scripts", "🧩", page3, _navTabButtons[3], _navTabIndicators[3]);
         _navigationController.RegisterPage("navegacion", "Navegación & Pantalla", "🧭", page4, _navTabButtons[4], _navTabIndicators[4]);
+        _navigationController.RegisterPage("bucle", "Bucle & 8 Sprites", "🎬", page5, _navTabButtons[5], _navTabIndicators[5]);
 
-        // 7. Footer / Barra Inferior de Navegación y Estado
+        // 7. Footer / Barra Inferior de Navegación y Estado (6 Dots)
         BuildFooter(masterContainer.transform);
     }
 
     // ==========================================
     // 1. Header y Barra de Navegación Superior
     // ==========================================
-    Button[] _navTabButtons = new Button[5];
-    Image[] _navTabIndicators = new Image[5];
+    Button[] _navTabButtons = new Button[6];
+    Image[] _navTabIndicators = new Image[6];
 
     void BuildHeader(Transform parent)
     {
@@ -216,7 +248,7 @@ public class PrimeraVentana : MonoBehaviour
 
         var hLayout = headerPanel.gameObject.AddComponent<HorizontalLayoutGroup>();
         hLayout.padding = new RectOffset(16, 16, 8, 8);
-        hLayout.spacing = 12;
+        hLayout.spacing = 10;
         hLayout.childControlWidth = false;
         hLayout.childControlHeight = true;
         hLayout.childForceExpandWidth = false;
@@ -224,18 +256,18 @@ public class PrimeraVentana : MonoBehaviour
         hLayout.childAlignment = TextAnchor.MiddleLeft;
 
         // Logo
-        var logoBox = Panel(headerPanel.transform, AccentPrimary);
+        var logoBox = Panel(headerPanel.transform, AccentFlame);
         logoBox.name = "AppLogo";
-        Size(logoBox.gameObject, prefW: 48, prefH: 48);
-        var logoText = CreateText(logoBox.transform, "✦", 24, TextAnchor.MiddleCenter, TextWhite, FontStyle.Bold);
+        Size(logoBox.gameObject, prefW: 46, prefH: 46);
+        var logoText = CreateText(logoBox.transform, "🔥", 22, TextAnchor.MiddleCenter, TextWhite, FontStyle.Bold);
         Stretch(logoText.rectTransform, Vector2.zero, Vector2.one);
 
         // Título y Migas de Pan (Breadcrumbs)
         var titleCol = Column(headerPanel.transform, 2);
-        Size(titleCol.gameObject, prefW: 270, prefH: 54);
+        Size(titleCol.gameObject, prefW: 240, prefH: 54);
         titleCol.childAlignment = TextAnchor.MiddleLeft;
 
-        var titleText = CreateText(titleCol.transform, "UNITY INTERACTIVO", 16, TextAnchor.MiddleLeft, TextWhite, FontStyle.Bold);
+        var titleText = CreateText(titleCol.transform, "UNITY INTERACTIVO", 15, TextAnchor.MiddleLeft, TextWhite, FontStyle.Bold);
         Size(titleText.gameObject, prefH: 22);
 
         _breadcrumbsText = CreateText(titleCol.transform, "Inicio", 11, TextAnchor.MiddleLeft, AccentCyan);
@@ -243,37 +275,37 @@ public class PrimeraVentana : MonoBehaviour
         _navigationController.txtBreadcrumbs = _breadcrumbsText;
 
         // Botones de Historial Rápido (Back / Forward)
-        var btnBack = CreateIconButton(headerPanel.transform, "◀", ButtonNormal, 42, 42, () => _navigationController.GoBack());
+        var btnBack = CreateIconButton(headerPanel.transform, "◀", ButtonNormal, 40, 42, () => _navigationController.GoBack());
         btnBack.name = "BtnQuickBack";
         _navigationController.btnBack = btnBack;
 
-        var btnForward = CreateIconButton(headerPanel.transform, "▶", ButtonNormal, 42, 42, () => _navigationController.GoForward());
+        var btnForward = CreateIconButton(headerPanel.transform, "▶", ButtonNormal, 40, 42, () => _navigationController.GoForward());
         btnForward.name = "BtnQuickForward";
         _navigationController.btnForward = btnForward;
 
         CreateSpacer(headerPanel.transform, flexW: 1);
 
-        // Pestañas Principales (5 Pestañas)
-        string[] tabLabels = { "🏠 Inicio", "🎯 Arrastrar Sprite", "🔤 Control Fuentes", "🧩 Fijar Scripts", "🧭 Navegación" };
+        // Pestañas Principales (6 Pestañas)
+        string[] tabLabels = { "🏠 Inicio", "🎯 Sprites", "🔤 Fuentes", "🧩 Scripts", "🧭 Navegación", "🎬 Bucle & 8 Sprites" };
 
         for (int i = 0; i < tabLabels.Length; i++)
         {
             var tabBtnGo = Panel(headerPanel.transform, ButtonNormal);
             tabBtnGo.name = "TabBtn_" + i;
-            Size(tabBtnGo.gameObject, prefW: 155, prefH: 46);
+            Size(tabBtnGo.gameObject, prefW: 145, prefH: 46);
 
             var btn = tabBtnGo.gameObject.AddComponent<Button>();
             btn.targetGraphic = tabBtnGo;
 
             var tabVGroup = tabBtnGo.gameObject.AddComponent<VerticalLayoutGroup>();
-            tabVGroup.padding = new RectOffset(8, 8, 4, 3);
+            tabVGroup.padding = new RectOffset(6, 6, 4, 3);
             tabVGroup.spacing = 2;
             tabVGroup.childControlWidth = true;
             tabVGroup.childControlHeight = true;
             tabVGroup.childForceExpandWidth = true;
             tabVGroup.childForceExpandHeight = true;
 
-            var label = CreateText(tabBtnGo.transform, tabLabels[i], 12, TextAnchor.MiddleCenter, TextWhite, FontStyle.Bold);
+            var label = CreateText(tabBtnGo.transform, tabLabels[i], 11, TextAnchor.MiddleCenter, TextWhite, FontStyle.Bold);
             Flex(label.gameObject, flexH: 1);
 
             var indicator = Panel(tabBtnGo.transform, Color.clear);
@@ -302,45 +334,52 @@ public class PrimeraVentana : MonoBehaviour
         hLayout.childForceExpandHeight = true;
 
         // Columna Izquierda: Tarjeta Hero y Accesos a Módulos
-        var leftCol = Column(page.transform, 12);
+        var leftCol = Column(page.transform, 10);
         Flex(leftCol.gameObject, flexW: 2.2f);
 
         // Hero Card
         var heroCard = Panel(leftCol.transform, CardBg);
-        Size(heroCard.gameObject, prefH: 155);
+        Size(heroCard.gameObject, prefH: 140);
         var heroV = heroCard.gameObject.AddComponent<VerticalLayoutGroup>();
-        heroV.padding = new RectOffset(20, 20, 16, 16);
-        heroV.spacing = 6;
+        heroV.padding = new RectOffset(20, 20, 14, 14);
+        heroV.spacing = 4;
         heroV.childControlWidth = true;
         heroV.childControlHeight = true;
         heroV.childForceExpandWidth = true;
         heroV.childForceExpandHeight = false;
 
-        var badge = CreateBadge(heroCard.transform, "SISTEMA INTEGRAL DE BOTONES Y COMPONENTES EN UNITY", AccentSuccess);
-        Size(badge.gameObject, prefH: 24);
+        var badge = CreateBadge(heroCard.transform, "BUCLE DE VIDEOJUEGO & ANIMACIÓN CON 8 SPRITES (LOOP ANIMATION)", AccentFlame);
+        Size(badge.gameObject, prefH: 22);
 
-        var heroTitle = CreateText(heroCard.transform, "Controlador Interactivo de Sprites, Fuentes, Scripts y Navegación", 19, TextAnchor.MiddleLeft, TextWhite, FontStyle.Bold);
-        Size(heroTitle.gameObject, prefH: 28);
+        var heroTitle = CreateText(heroCard.transform, "Controlador Integral: Sprites, Fuentes, Scripts, Bucle de Juego y 8 Sprites", 18, TextAnchor.MiddleLeft, TextWhite, FontStyle.Bold);
+        Size(heroTitle.gameObject, prefH: 26);
 
         var heroDesc = CreateText(heroCard.transform,
-            "Selecciona cualquiera de los módulos interactivos para experimentar el arrastre táctil de sprites, el formateo en vivo de fuentes tipográficas, la fijación dinámica de scripts a GameObjects y la navegación multinivel.",
-            13, TextAnchor.MiddleLeft, TextMuted);
-        Size(heroDesc.gameObject, prefH: 40);
+            "Aplicación interactiva con bucle de videojuego configurable en tiempo real, ciclo de animación continua por cuadros con 8 sprites (Fuego, Caminata, Gema 3D y Orbe de Energía), arrastre táctil y tipografía dinámica.",
+            12, TextAnchor.MiddleLeft, TextMuted);
+        Size(heroDesc.gameObject, prefH: 36);
 
-        // Fila con 3 Tarjetas de Módulos Principales
-        var rowModules = Row(leftCol.transform, 12);
-        Flex(rowModules.gameObject, flexH: 1);
+        // Grid 2x2 de Módulos Principales
+        var rowModules1 = Row(leftCol.transform, 10);
+        Flex(rowModules1.gameObject, flexH: 1);
 
-        CreateModuleCard(rowModules.transform, "🎯 Arrastrar Sprite",
-            "Mueve sprites con el ratón o táctil. Botones para generar nuevos sprites, resetear posición, cambiar apariencia, color y bloquear.",
+        CreateModuleCard(rowModules1.transform, "🎬 Bucle & 8 Sprites",
+            "Bucle de juego (Play, Pause, Step, TimeScale, FPS) y animación con 8 sprites en bucle continuo (Fuego, Caminata, Gema, Orbe).",
+            AccentFlame, "Abrir Módulo", () => _navigationController.NavigateTo(5));
+
+        CreateModuleCard(rowModules1.transform, "🎯 Arrastrar Sprites",
+            "Mueve sprites con ratón o táctil. Genera nuevos sprites, resetea origen, cambia apariencias y bloquea arrastre.",
             AccentPrimary, "Abrir Módulo", () => _navigationController.NavigateTo(1));
 
-        CreateModuleCard(rowModules.transform, "🔤 Controlar Fuentes",
-            "Ajusta tamaño (+/-), estilo (Bold/Italic), alineación, familia tipográfica, paleta de colores y efectos de sombra/contorno con botones.",
+        var rowModules2 = Row(leftCol.transform, 10);
+        Flex(rowModules2.gameObject, flexH: 1);
+
+        CreateModuleCard(rowModules2.transform, "🔤 Control de Fuentes",
+            "Ajusta tamaño (+/-), estilo (Bold/Italic), alineación, familia tipográfica, paleta de colores y efectos visuales.",
             AccentSuccess, "Abrir Módulo", () => _navigationController.NavigateTo(2));
 
-        CreateModuleCard(rowModules.transform, "🧩 Fijar Scripts",
-            "Fija y desacopla scripts (AddComponent) a objetos de juego en tiempo real con inspector en vivo y botones de control.",
+        CreateModuleCard(rowModules2.transform, "🧩 Fijar Scripts & Nav",
+            "Fija y desacopla componentes (AddComponent) en tiempo real con inspector en vivo y navegación con historial.",
             AccentPurple, "Abrir Módulo", () => _navigationController.NavigateTo(3));
 
         // Columna Derecha: Métricas y Consola Rápida
@@ -351,7 +390,7 @@ public class PrimeraVentana : MonoBehaviour
         Flex(statusCard.gameObject, flexH: 1);
         var statusV = statusCard.gameObject.AddComponent<VerticalLayoutGroup>();
         statusV.padding = new RectOffset(16, 16, 16, 16);
-        statusV.spacing = 10;
+        statusV.spacing = 8;
         statusV.childControlWidth = true;
         statusV.childControlHeight = true;
         statusV.childForceExpandWidth = true;
@@ -360,23 +399,26 @@ public class PrimeraVentana : MonoBehaviour
         var statusHead = CreateText(statusCard.transform, "📊 Estado del Sistema", 15, TextAnchor.MiddleLeft, TextWhite, FontStyle.Bold);
         Size(statusHead.gameObject, prefH: 24);
 
-        _resolutionInfoText = CreateText(statusCard.transform, "Cargando métricas...", 12, TextAnchor.UpperLeft, TextMuted);
+        _resolutionInfoText = CreateText(statusCard.transform, "Cargando métricas...", 11, TextAnchor.UpperLeft, TextMuted);
         Flex(_resolutionInfoText.gameObject, flexH: 1);
 
         var div = Panel(statusCard.transform, BorderColor);
         Size(div.gameObject, prefH: 1);
 
-        var quickHead = CreateText(statusCard.transform, "⚡ Atajos Rápidos", 14, TextAnchor.MiddleLeft, TextWhite, FontStyle.Bold);
-        Size(quickHead.gameObject, prefH: 22);
+        var quickHead = CreateText(statusCard.transform, "⚡ Atajos Rápidos", 13, TextAnchor.MiddleLeft, TextWhite, FontStyle.Bold);
+        Size(quickHead.gameObject, prefH: 20);
+
+        var b0 = CreateButton(statusCard.transform, "🎬 Bucle y 8 Sprites Animados", AccentFlame, () => _navigationController.NavigateTo(5));
+        Size(b0.gameObject, prefH: 36);
 
         var b1 = CreateButton(statusCard.transform, "🎯 Probar Arrastre de Sprite", AccentPrimary, () => _navigationController.NavigateTo(1));
-        Size(b1.gameObject, prefH: 38);
+        Size(b1.gameObject, prefH: 36);
 
         var b2 = CreateButton(statusCard.transform, "🔤 Editar Tipografía", AccentSuccess, () => _navigationController.NavigateTo(2));
-        Size(b2.gameObject, prefH: 38);
+        Size(b2.gameObject, prefH: 36);
 
         var b3 = CreateButton(statusCard.transform, "🧩 Fijar Scripts a Objetos", AccentPurple, () => _navigationController.NavigateTo(3));
-        Size(b3.gameObject, prefH: 38);
+        Size(b3.gameObject, prefH: 36);
 
         return page.gameObject;
     }
@@ -617,7 +659,7 @@ public class PrimeraVentana : MonoBehaviour
     {
         if (_spriteSandboxArea == null) return;
 
-        Color[] colors = { AccentSuccess, AccentWarning, AccentDanger, AccentPurple, AccentCyan };
+        Color[] colors = { AccentSuccess, AccentWarning, AccentDanger, AccentPurple, AccentCyan, AccentFlame };
         Sprite[] shapes = { _starSprite, _shieldSprite, _circleSprite, _diamondSprite };
 
         Color chosenColor = colors[UnityEngine.Random.Range(0, colors.Length)];
@@ -896,7 +938,7 @@ public class PrimeraVentana : MonoBehaviour
         Flex(bindPanel.gameObject, flexH: 1);
         var bV = bindPanel.gameObject.AddComponent<VerticalLayoutGroup>();
         bV.padding = new RectOffset(14, 14, 12, 12);
-        bV.spacing = 8;
+        bV.spacing = 6;
         bV.childControlWidth = true;
         bV.childControlHeight = true;
         bV.childForceExpandWidth = true;
@@ -916,7 +958,7 @@ public class PrimeraVentana : MonoBehaviour
                 }
             }
         });
-        Size(btnAttachDrag.gameObject, prefH: 38);
+        Size(btnAttachDrag.gameObject, prefH: 34);
 
         var btnAttachFont = CreateButton(bindPanel.transform, "🔤 Fijar 'FontController'", AccentSuccess, () =>
         {
@@ -925,16 +967,29 @@ public class PrimeraVentana : MonoBehaviour
                 _scriptBinder.AttachFontController(_testTargetGameObject);
             }
         });
-        Size(btnAttachFont.gameObject, prefH: 38);
+        Size(btnAttachFont.gameObject, prefH: 34);
 
-        var btnAttachNav = CreateButton(bindPanel.transform, "🧭 Fijar 'NavigationController'", AccentPurple, () =>
+        var btnAttachAnim = CreateButton(bindPanel.transform, "🎬 Fijar 'SpriteAnimationLoop'", AccentFlame, () =>
         {
             if (_scriptBinder != null && _testTargetGameObject != null)
             {
-                _scriptBinder.AttachNavigationController(_testTargetGameObject);
+                var anim = _scriptBinder.AttachSpriteAnimationLoop(_testTargetGameObject);
+                if (anim != null)
+                {
+                    anim.SetSpriteFrames(_fireSprites, "Fuego Mágico (8 Sprites)");
+                }
             }
         });
-        Size(btnAttachNav.gameObject, prefH: 38);
+        Size(btnAttachAnim.gameObject, prefH: 34);
+
+        var btnAttachLoop = CreateButton(bindPanel.transform, "⚡ Fijar 'GameLoopController'", AccentCyan, () =>
+        {
+            if (_scriptBinder != null && _testTargetGameObject != null)
+            {
+                _scriptBinder.AttachGameLoopController(_testTargetGameObject);
+            }
+        });
+        Size(btnAttachLoop.gameObject, prefH: 34);
 
         // Separador
         var div = Panel(bindPanel.transform, BorderColor);
@@ -943,12 +998,15 @@ public class PrimeraVentana : MonoBehaviour
         var sec2 = CreateText(bindPanel.transform, "🗑️ Desacoplar Scripts (Destroy)", 13, TextAnchor.MiddleLeft, TextWhite, FontStyle.Bold);
         Size(sec2.gameObject, prefH: 18);
 
-        var rowRemove = Row(bindPanel.transform, 6);
-        Size(rowRemove.gameObject, prefH: 34);
+        var rowRemove1 = Row(bindPanel.transform, 6);
+        Size(rowRemove1.gameObject, prefH: 32);
+        CreateButton(rowRemove1.transform, "Remover Drag", ButtonNormal, () => _scriptBinder?.RemoveComponentByName("DraggableSprite", _testTargetGameObject));
+        CreateButton(rowRemove1.transform, "Remover Font", ButtonNormal, () => _scriptBinder?.RemoveComponentByName("FontController", _testTargetGameObject));
 
-        CreateButton(rowRemove.transform, "Remover Drag", ButtonNormal, () => _scriptBinder?.RemoveComponentByName("DraggableSprite", _testTargetGameObject));
-        CreateButton(rowRemove.transform, "Remover Font", ButtonNormal, () => _scriptBinder?.RemoveComponentByName("FontController", _testTargetGameObject));
-        CreateButton(rowRemove.transform, "Remover Nav", ButtonNormal, () => _scriptBinder?.RemoveComponentByName("NavigationController", _testTargetGameObject));
+        var rowRemove2 = Row(bindPanel.transform, 6);
+        Size(rowRemove2.gameObject, prefH: 32);
+        CreateButton(rowRemove2.transform, "Remover Anim", ButtonNormal, () => _scriptBinder?.RemoveComponentByName("SpriteAnimationLoop", _testTargetGameObject));
+        CreateButton(rowRemove2.transform, "Remover GameLoop", ButtonNormal, () => _scriptBinder?.RemoveComponentByName("GameLoopController", _testTargetGameObject));
 
         // Separador
         var div2 = Panel(bindPanel.transform, BorderColor);
@@ -957,11 +1015,17 @@ public class PrimeraVentana : MonoBehaviour
         var sec3 = CreateText(bindPanel.transform, "⚙️ Alternar Estado de Scripts", 13, TextAnchor.MiddleLeft, TextWhite, FontStyle.Bold);
         Size(sec3.gameObject, prefH: 18);
 
-        var btnToggleDrag = CreateButton(bindPanel.transform, "Alternar Habilitación de DraggableSprite", AccentWarning, () =>
+        var btnToggleDrag = CreateButton(bindPanel.transform, "Alternar DraggableSprite", AccentWarning, () =>
         {
             _scriptBinder?.ToggleComponentEnabled("DraggableSprite", _testTargetGameObject);
         });
-        Size(btnToggleDrag.gameObject, prefH: 34);
+        Size(btnToggleDrag.gameObject, prefH: 32);
+
+        var btnToggleAnim = CreateButton(bindPanel.transform, "Alternar SpriteAnimationLoop", AccentPurple, () =>
+        {
+            _scriptBinder?.ToggleComponentEnabled("SpriteAnimationLoop", _testTargetGameObject);
+        });
+        Size(btnToggleAnim.gameObject, prefH: 32);
 
         // Columna Derecha: Objeto Objetivo en Vivo e Inspector de Componentes
         var rightCol = Column(page.transform, 10);
@@ -1106,6 +1170,7 @@ public class PrimeraVentana : MonoBehaviour
         CreateButton(navCard.transform, "2. 🎯 Ir a Arrastrar Sprite", AccentPrimary, () => _navigationController.NavigateTo(1));
         CreateButton(navCard.transform, "3. 🔤 Ir a Control de Fuentes", AccentSuccess, () => _navigationController.NavigateTo(2));
         CreateButton(navCard.transform, "4. 🧩 Ir a Fijar Scripts", AccentPurple, () => _navigationController.NavigateTo(3));
+        CreateButton(navCard.transform, "5. 🎬 Ir a Bucle y 8 Sprites", AccentFlame, () => _navigationController.NavigateTo(5));
 
         // Separador
         var div2 = Panel(navCard.transform, BorderColor);
@@ -1168,7 +1233,475 @@ public class PrimeraVentana : MonoBehaviour
     }
 
     // ==========================================
-    // Footer / Barra Inferior de Navegación
+    // PÁGINA 6: Bucle de Videojuego y Animación con Ocho (8) Sprites
+    // ==========================================
+    GameObject BuildPageBucleYAnimacion(Transform parent)
+    {
+        var page = Panel(parent, Color.clear);
+        page.name = "Page_BucleYAnimacion";
+        Stretch(page.rectTransform, Vector2.zero, Vector2.one);
+
+        var hLayout = page.gameObject.AddComponent<HorizontalLayoutGroup>();
+        hLayout.spacing = 14;
+        hLayout.childControlWidth = true;
+        hLayout.childControlHeight = true;
+        hLayout.childForceExpandWidth = true;
+        hLayout.childForceExpandHeight = true;
+
+        // -------------------------------------------------------------
+        // Columna Izquierda: Controlador del Bucle de Videojuego (Game Loop)
+        // -------------------------------------------------------------
+        var leftCol = Column(page.transform, 10);
+        Flex(leftCol.gameObject, flexW: 1.25f);
+
+        var loopHeadCard = Panel(leftCol.transform, CardBg);
+        Size(loopHeadCard.gameObject, prefH: 70);
+        var lHeadV = loopHeadCard.gameObject.AddComponent<VerticalLayoutGroup>();
+        lHeadV.padding = new RectOffset(16, 16, 10, 10);
+        lHeadV.spacing = 4;
+        lHeadV.childControlWidth = true;
+        lHeadV.childControlHeight = true;
+        lHeadV.childForceExpandWidth = true;
+        lHeadV.childForceExpandHeight = false;
+
+        var lHeadTitle = CreateText(loopHeadCard.transform, "⚡ Bucle de Videojuego (Game Loop)", 16, TextAnchor.MiddleLeft, TextWhite, FontStyle.Bold);
+        Size(lHeadTitle.gameObject, prefH: 22);
+        var lHeadDesc = CreateText(loopHeadCard.transform, "Gestiona el ciclo de ejecución, escala de tiempo (TimeScale) y telemetría de rendimiento.", 11, TextAnchor.MiddleLeft, TextMuted);
+        Size(lHeadDesc.gameObject, prefH: 24);
+
+        // Panel de Transporte del Bucle
+        var loopPanel = Panel(leftCol.transform, SidebarBg);
+        Flex(loopPanel.gameObject, flexH: 1);
+        var lpV = loopPanel.gameObject.AddComponent<VerticalLayoutGroup>();
+        lpV.padding = new RectOffset(14, 14, 12, 12);
+        lpV.spacing = 8;
+        lpV.childControlWidth = true;
+        lpV.childControlHeight = true;
+        lpV.childForceExpandWidth = true;
+        lpV.childForceExpandHeight = false;
+
+        // Estado del Bucle
+        var rowState = Row(loopPanel.transform, 8);
+        Size(rowState.gameObject, prefH: 28);
+        var lblLoopState = CreateText(rowState.transform, "Estado del Bucle:", 12, TextAnchor.MiddleLeft, TextWhite, FontStyle.Bold);
+        Size(lblLoopState.gameObject, prefW: 120);
+
+        var stateBadgeImg = CreateBadge(rowState.transform, "🟢 EJECUCIÓN (RUNNING)", AccentSuccess, out _loopStateBadge);
+        Flex(stateBadgeImg.gameObject, flexW: 1);
+
+        // Botones de Transporte del Bucle
+        var rowTransport = Row(loopPanel.transform, 6);
+        Size(rowTransport.gameObject, prefH: 36);
+
+        var btnPlayLoop = CreateButton(rowTransport.transform, "▶ Reanudar", AccentSuccess, () =>
+        {
+            _gameLoopController?.Play();
+            UpdateLoopStateUI(GameLoopController.GameLoopState.Running);
+        });
+        Flex(btnPlayLoop.gameObject, flexW: 1);
+
+        var btnPauseLoop = CreateButton(rowTransport.transform, "⏸ Pausar", AccentWarning, () =>
+        {
+            _gameLoopController?.Pause();
+            UpdateLoopStateUI(GameLoopController.GameLoopState.Paused);
+        });
+        Flex(btnPauseLoop.gameObject, flexW: 1);
+
+        var btnStepLoop = CreateButton(rowTransport.transform, "⏯ Paso a Paso", AccentCyan, () =>
+        {
+            _gameLoopController?.StepFrame();
+            UpdateLoopStateUI(GameLoopController.GameLoopState.Stepping);
+        });
+        Flex(btnStepLoop.gameObject, flexW: 1);
+
+        var btnResetLoop = CreateButton(rowTransport.transform, "⏹ Reset", ButtonNormal, () =>
+        {
+            _gameLoopController?.StopAndReset();
+            UpdateLoopStateUI(GameLoopController.GameLoopState.Stopped);
+        });
+        Flex(btnResetLoop.gameObject, flexW: 1);
+
+        // Separador
+        var divLoop1 = Panel(loopPanel.transform, BorderColor);
+        Size(divLoop1.gameObject, prefH: 1);
+
+        // Escala de Tiempo (TimeScale Multiplier)
+        var rowScaleTitle = Row(loopPanel.transform, 8);
+        Size(rowScaleTitle.gameObject, prefH: 20);
+        var lblTimeScale = CreateText(rowScaleTitle.transform, "Velocidad de Tiempo (TimeScale):", 12, TextAnchor.MiddleLeft, TextWhite, FontStyle.Bold);
+        Flex(lblTimeScale.gameObject, flexW: 1);
+        _loopTimeScaleText = CreateText(rowScaleTitle.transform, "1.00x", 12, TextAnchor.MiddleRight, AccentCyan, FontStyle.Bold);
+        Size(_loopTimeScaleText.gameObject, prefW: 60);
+
+        var rowTimeScales = Row(loopPanel.transform, 6);
+        Size(rowTimeScales.gameObject, prefH: 32);
+        CreateButton(rowTimeScales.transform, "0.25x", ButtonNormal, () => SetGameTimeScale(0.25f));
+        CreateButton(rowTimeScales.transform, "0.50x", ButtonNormal, () => SetGameTimeScale(0.50f));
+        CreateButton(rowTimeScales.transform, "1.00x", AccentPrimary, () => SetGameTimeScale(1.00f));
+        CreateButton(rowTimeScales.transform, "2.00x", ButtonNormal, () => SetGameTimeScale(2.00f));
+        CreateButton(rowTimeScales.transform, "4.00x", ButtonNormal, () => SetGameTimeScale(4.00f));
+
+        // Limitador de Cuadros por Segundo (Target Frame Rate)
+        var secFpsLimit = CreateText(loopPanel.transform, "Límite de Tasa de Refresco (Target FPS):", 12, TextAnchor.MiddleLeft, TextWhite, FontStyle.Bold);
+        Size(secFpsLimit.gameObject, prefH: 18);
+
+        var rowFpsLimits = Row(loopPanel.transform, 6);
+        Size(rowFpsLimits.gameObject, prefH: 32);
+        CreateButton(rowFpsLimits.transform, "15 FPS", ButtonNormal, () => _gameLoopController?.ApplyTargetFramerate(15));
+        CreateButton(rowFpsLimits.transform, "30 FPS", ButtonNormal, () => _gameLoopController?.ApplyTargetFramerate(30));
+        CreateButton(rowFpsLimits.transform, "60 FPS", AccentSuccess, () => _gameLoopController?.ApplyTargetFramerate(60));
+        CreateButton(rowFpsLimits.transform, "120 FPS", ButtonNormal, () => _gameLoopController?.ApplyTargetFramerate(120));
+        CreateButton(rowFpsLimits.transform, "Máx", ButtonNormal, () => _gameLoopController?.ApplyTargetFramerate(-1));
+
+        // Separador
+        var divLoop2 = Panel(loopPanel.transform, BorderColor);
+        Size(divLoop2.gameObject, prefH: 1);
+
+        // Telemetría en Vivo del Bucle de Videojuego
+        var secTele = CreateText(loopPanel.transform, "📊 Telemetría en Vivo del Bucle", 13, TextAnchor.MiddleLeft, TextWhite, FontStyle.Bold);
+        Size(secTele.gameObject, prefH: 18);
+
+        var teleBox = Panel(loopPanel.transform, SandboxBg);
+        Size(teleBox.gameObject, prefH: 95);
+        var teleV = teleBox.gameObject.AddComponent<VerticalLayoutGroup>();
+        teleV.padding = new RectOffset(12, 12, 8, 8);
+        teleV.spacing = 3;
+        teleV.childControlWidth = true;
+        teleV.childControlHeight = true;
+        teleV.childForceExpandWidth = true;
+        teleV.childForceExpandHeight = false;
+
+        _loopTelemetryFps = CreateText(teleBox.transform, "• FPS Actual: 60.0 FPS", 11, TextAnchor.MiddleLeft, AccentSuccess, FontStyle.Bold);
+        Size(_loopTelemetryFps.gameObject, prefH: 18);
+
+        _loopTelemetryDelta = CreateText(teleBox.transform, "• DeltaTime (ms/cuadro): 16.6 ms", 11, TextAnchor.MiddleLeft, TextMuted);
+        Size(_loopTelemetryDelta.gameObject, prefH: 18);
+
+        _loopTelemetryFrames = CreateText(teleBox.transform, "• Total Cuadros Procesados: 0", 11, TextAnchor.MiddleLeft, TextMuted);
+        Size(_loopTelemetryFrames.gameObject, prefH: 18);
+
+        _loopTelemetryTime = CreateText(teleBox.transform, "• Tiempo de Juego: 0.0s  |  Real: 0.0s", 11, TextAnchor.MiddleLeft, TextMuted);
+        Size(_loopTelemetryTime.gameObject, prefH: 18);
+
+        // Conectar callbacks de telemetría
+        _gameLoopController.OnTelemetryUpdate = OnLoopTelemetryReceived;
+
+        // -------------------------------------------------------------
+        // Columna Central / Derecha: Animación con Ocho (8) Sprites
+        // -------------------------------------------------------------
+        var rightCol = Column(page.transform, 10);
+        Flex(rightCol.gameObject, flexW: 1.85f);
+
+        var animCard = Panel(rightCol.transform, CardBg);
+        Flex(animCard.gameObject, flexH: 1);
+        var animV = animCard.gameObject.AddComponent<VerticalLayoutGroup>();
+        animV.padding = new RectOffset(18, 18, 14, 14);
+        animV.spacing = 8;
+        animV.childControlWidth = true;
+        animV.childControlHeight = true;
+        animV.childForceExpandWidth = true;
+        animV.childForceExpandHeight = false;
+
+        // Barra de Título del Módulo de Animación 8 Sprites
+        var aHead = Row(animCard.transform, 10);
+        Size(aHead.gameObject, prefH: 28);
+
+        _animSequenceTitle = CreateText(aHead.transform, "🔥 Fuego Mágico (8 Sprites en Bucle)", 16, TextAnchor.MiddleLeft, TextWhite, FontStyle.Bold);
+        Flex(_animSequenceTitle.gameObject, flexW: 1);
+
+        var aBadgeImg = CreateBadge(aHead.transform, "CUADRO ACTIVO: #1 / 8", AccentFlame, out _animActiveFrameBadge);
+        Size(aBadgeImg.gameObject, prefW: 175, prefH: 24);
+
+        // Selector de Secuencias de 8 Sprites
+        var rowSequences = Row(animCard.transform, 6);
+        Size(rowSequences.gameObject, prefH: 34);
+
+        CreateButton(rowSequences.transform, "🔥 Fuego (8 Sprites)", AccentFlame, () => Select8SpriteSequence(0));
+        CreateButton(rowSequences.transform, "🏃‍♂️ Caminata (8 Sprites)", AccentPrimary, () => Select8SpriteSequence(1));
+        CreateButton(rowSequences.transform, "💎 Gema 3D (8 Sprites)", AccentPurple, () => Select8SpriteSequence(2));
+        CreateButton(rowSequences.transform, "⚡ Orbe Energía (8 Sprites)", AccentCyan, () => Select8SpriteSequence(3));
+
+        // Área Sandbox de Reproducción y Arrastre del Sprite Animado
+        var animSandbox = Panel(animCard.transform, SandboxBg);
+        animSandbox.name = "AnimSandbox";
+        Flex(animSandbox.gameObject, flexH: 1);
+
+        // Guías de cuadrícula en el sandbox
+        var aGridH = Panel(animSandbox.transform, new Color(0.18f, 0.22f, 0.32f, 0.35f));
+        Stretch(aGridH.rectTransform, new Vector2(0f, 0.5f), new Vector2(1f, 0.5f));
+        aGridH.rectTransform.sizeDelta = new Vector2(0, 2);
+
+        var aGridV = Panel(animSandbox.transform, new Color(0.18f, 0.22f, 0.32f, 0.35f));
+        Stretch(aGridV.rectTransform, new Vector2(0.5f, 0f), new Vector2(0.5f, 1f));
+        aGridV.rectTransform.sizeDelta = new Vector2(2, 0);
+
+        // Contenedor del Sprite Animado
+        _animatedSpriteImg = Panel(animSandbox.transform, Color.white);
+        _animatedSpriteImg.name = "Animated8SpriteObject";
+        _animatedSpriteImg.sprite = _fireSprites[0];
+        var aRt = _animatedSpriteImg.rectTransform;
+        aRt.sizeDelta = new Vector2(140, 140);
+        aRt.anchoredPosition = Vector2.zero;
+
+        // Vincular Componente SpriteAnimationLoop
+        _spriteAnimationLoop = _animatedSpriteImg.gameObject.AddComponent<SpriteAnimationLoop>();
+        _spriteAnimationLoop.targetImage = _animatedSpriteImg;
+        _spriteAnimationLoop.animationFrames = _fireSprites;
+        _spriteAnimationLoop.sequenceName = "Fuego Mágico (8 Sprites)";
+        _spriteAnimationLoop.framesPerSecond = 8f;
+        _spriteAnimationLoop.loopMode = SpriteAnimationLoop.AnimationLoopMode.Loop;
+
+        // Conectar callbacks de animación
+        _spriteAnimationLoop.OnFrameChanged = OnAnimationFrameChanged;
+        _spriteAnimationLoop.OnStatusMessage = msg => AddLog(msg);
+        _spriteAnimationLoop.OnLoopCompleted = count =>
+        {
+            if (_animLoopCountText != null)
+            {
+                _animLoopCountText.text = $"Bucles Completados: {count}";
+            }
+        };
+
+        // Hacer también el sprite animado arrastrable táctil / ratón
+        _animDraggableSprite = _animatedSpriteImg.gameObject.AddComponent<DraggableSprite>();
+        _animDraggableSprite.containmentArea = animSandbox.rectTransform;
+        _animDraggableSprite.spriteImage = _animatedSpriteImg;
+        _animDraggableSprite.OnStatusMessage = msg => AddLog(msg);
+
+        // -------------------------------------------------------------
+        // Tira de Fotogramas (Storyboard Frame Strip de los 8 Sprites)
+        // -------------------------------------------------------------
+        var secStrip = CreateText(animCard.transform, "🎞️ Tira de Fotogramas (8 Sprites de la Secuencia) - Haz clic para saltar a un cuadro:", 12, TextAnchor.MiddleLeft, TextWhite, FontStyle.Bold);
+        Size(secStrip.gameObject, prefH: 18);
+
+        var stripRow = Row(animCard.transform, 6);
+        Size(stripRow.gameObject, prefH: 70);
+
+        for (int i = 0; i < 8; i++)
+        {
+            int frameIdx = i;
+            var frameBox = Panel(stripRow.transform, ButtonNormal);
+            frameBox.name = "FrameThumb_" + i;
+            Flex(frameBox.gameObject, flexW: 1);
+
+            var frameBtn = frameBox.gameObject.AddComponent<Button>();
+            frameBtn.targetGraphic = frameBox;
+            frameBtn.onClick.AddListener(() => _spriteAnimationLoop?.SetFrame(frameIdx));
+
+            var fbV = frameBox.gameObject.AddComponent<VerticalLayoutGroup>();
+            fbV.padding = new RectOffset(4, 4, 3, 3);
+            fbV.spacing = 2;
+            fbV.childControlWidth = true;
+            fbV.childControlHeight = true;
+            fbV.childForceExpandWidth = true;
+            fbV.childForceExpandHeight = true;
+
+            // Thumbnail Image
+            var thumbImg = Panel(frameBox.transform, Color.white);
+            thumbImg.sprite = _fireSprites[i];
+            Flex(thumbImg.gameObject, flexH: 1);
+
+            // Label #1 to #8
+            var lbl = CreateText(frameBox.transform, $"#{i + 1}", 10, TextAnchor.MiddleCenter, (i == 0) ? AccentFlame : TextMuted, FontStyle.Bold);
+            Size(lbl.gameObject, prefH: 14);
+
+            _storyboardThumbnails[i] = thumbImg;
+            _storyboardBorders[i] = frameBox;
+            _storyboardLabels[i] = lbl;
+        }
+
+        // -------------------------------------------------------------
+        // Controles de Reproducción y Modos de Bucle
+        // -------------------------------------------------------------
+        var rowAnimControls = Row(animCard.transform, 6);
+        Size(rowAnimControls.gameObject, prefH: 34);
+
+        var bPlayAnim = CreateButton(rowAnimControls.transform, "▶ Play", AccentSuccess, () => _spriteAnimationLoop?.Play());
+        Flex(bPlayAnim.gameObject, flexW: 1);
+
+        var bPauseAnim = CreateButton(rowAnimControls.transform, "⏸ Pausa", AccentWarning, () => _spriteAnimationLoop?.Pause());
+        Flex(bPauseAnim.gameObject, flexW: 1);
+
+        var bStopAnim = CreateButton(rowAnimControls.transform, "⏹ Stop (Reset)", ButtonNormal, () => _spriteAnimationLoop?.Stop());
+        Flex(bStopAnim.gameObject, flexW: 1.1f);
+
+        var bPrevFrame = CreateButton(rowAnimControls.transform, "◀ Cuadro Ant.", ButtonNormal, () => _spriteAnimationLoop?.StepBackward());
+        Flex(bPrevFrame.gameObject, flexW: 1.1f);
+
+        var bNextFrame = CreateButton(rowAnimControls.transform, "Cuadro Sig. ▶", ButtonNormal, () => _spriteAnimationLoop?.StepForward());
+        Flex(bNextFrame.gameObject, flexW: 1.1f);
+
+        // Modos de Bucle y Velocidad
+        var rowModesAndFps = Row(animCard.transform, 6);
+        Size(rowModesAndFps.gameObject, prefH: 34);
+
+        CreateButton(rowModesAndFps.transform, "🔁 Bucle (Loop)", AccentFlame, () => _spriteAnimationLoop?.SetLoopMode(SpriteAnimationLoop.AnimationLoopMode.Loop));
+        CreateButton(rowModesAndFps.transform, "🔀 Ping-Pong", ButtonNormal, () => _spriteAnimationLoop?.SetLoopMode(SpriteAnimationLoop.AnimationLoopMode.PingPong));
+        CreateButton(rowModesAndFps.transform, "1️⃣ Una Vez", ButtonNormal, () => _spriteAnimationLoop?.SetLoopMode(SpriteAnimationLoop.AnimationLoopMode.Once));
+        CreateButton(rowModesAndFps.transform, "🔄 Inverso", ButtonNormal, () => _spriteAnimationLoop?.SetLoopMode(SpriteAnimationLoop.AnimationLoopMode.Reverse));
+
+        CreateSpacer(rowModesAndFps.transform, flexW: 0.5f);
+
+        _animLoopCountText = CreateText(rowModesAndFps.transform, "Bucles: 0", 11, TextAnchor.MiddleRight, TextMuted);
+        Size(_animLoopCountText.gameObject, prefW: 80);
+
+        _animFpsText = CreateText(rowModesAndFps.transform, "Velocidad: 8 FPS", 11, TextAnchor.MiddleRight, AccentCyan, FontStyle.Bold);
+        Size(_animFpsText.gameObject, prefW: 120);
+
+        CreateButton(rowModesAndFps.transform, "4 FPS", ButtonNormal, () => SetAnimFps(4));
+        CreateButton(rowModesAndFps.transform, "8 FPS", AccentPrimary, () => SetAnimFps(8));
+        CreateButton(rowModesAndFps.transform, "12 FPS", ButtonNormal, () => SetAnimFps(12));
+        CreateButton(rowModesAndFps.transform, "24 FPS", ButtonNormal, () => SetAnimFps(24));
+        CreateButton(rowModesAndFps.transform, "60 FPS", ButtonNormal, () => SetAnimFps(60));
+
+        // Resaltar el primer frame inicial
+        HighlightActiveFrame(0);
+
+        return page.gameObject;
+    }
+
+    void Select8SpriteSequence(int sequenceIndex)
+    {
+        if (_spriteAnimationLoop == null) return;
+
+        Sprite[] selectedSet = _fireSprites;
+        string name = "Fuego Mágico (8 Sprites)";
+        Color themeColor = AccentFlame;
+
+        switch (sequenceIndex)
+        {
+            case 0:
+                selectedSet = _fireSprites;
+                name = "🔥 Fuego Mágico (8 Sprites en Bucle)";
+                themeColor = AccentFlame;
+                break;
+            case 1:
+                selectedSet = _walkSprites;
+                name = "🏃‍♂️ Ciclo de Caminata (8 Sprites en Bucle)";
+                themeColor = AccentPrimary;
+                break;
+            case 2:
+                selectedSet = _gemSprites;
+                name = "💎 Gema 3D Giratoria (8 Sprites en Bucle)";
+                themeColor = AccentPurple;
+                break;
+            case 3:
+                selectedSet = _energySprites;
+                name = "⚡ Orbe de Energía (8 Sprites en Bucle)";
+                themeColor = AccentCyan;
+                break;
+        }
+
+        _spriteAnimationLoop.SetSpriteFrames(selectedSet, name);
+        if (_animSequenceTitle != null) _animSequenceTitle.text = name;
+
+        // Actualizar miniaturas de la tira
+        for (int i = 0; i < 8; i++)
+        {
+            if (_storyboardThumbnails[i] != null && i < selectedSet.Length)
+            {
+                _storyboardThumbnails[i].sprite = selectedSet[i];
+            }
+        }
+
+        HighlightActiveFrame(0);
+        AddLog($"🎬 Secuencia cambiada a: {name}");
+    }
+
+    void OnAnimationFrameChanged(int frameIndex, Sprite sprite)
+    {
+        if (_animActiveFrameBadge != null)
+        {
+            _animActiveFrameBadge.text = $"CUADRO ACTIVO: #{frameIndex + 1} / 8";
+        }
+
+        HighlightActiveFrame(frameIndex);
+    }
+
+    void HighlightActiveFrame(int activeIndex)
+    {
+        for (int i = 0; i < 8; i++)
+        {
+            bool isActive = (i == activeIndex);
+            if (_storyboardBorders[i] != null)
+            {
+                _storyboardBorders[i].color = isActive ? new Color(0.24f, 0.51f, 0.98f, 1f) : ButtonNormal;
+            }
+            if (_storyboardLabels[i] != null)
+            {
+                _storyboardLabels[i].color = isActive ? AccentFlame : TextMuted;
+            }
+        }
+    }
+
+    void SetAnimFps(float fps)
+    {
+        if (_spriteAnimationLoop != null)
+        {
+            _spriteAnimationLoop.SetFramesPerSecond(fps);
+        }
+        if (_animFpsText != null)
+        {
+            _animFpsText.text = $"Velocidad: {fps:F0} FPS";
+        }
+    }
+
+    void SetGameTimeScale(float scale)
+    {
+        _gameLoopController?.SetTimeScale(scale);
+        if (_loopTimeScaleText != null)
+        {
+            _loopTimeScaleText.text = $"{scale:F2}x";
+        }
+    }
+
+    void UpdateLoopStateUI(GameLoopController.GameLoopState state)
+    {
+        if (_loopStateBadge == null) return;
+
+        switch (state)
+        {
+            case GameLoopController.GameLoopState.Running:
+                _loopStateBadge.text = "🟢 EJECUCIÓN (RUNNING)";
+                _loopStateBadge.color = AccentSuccess;
+                break;
+            case GameLoopController.GameLoopState.Paused:
+                _loopStateBadge.text = "⏸️ PAUSADO (PAUSED)";
+                _loopStateBadge.color = AccentWarning;
+                break;
+            case GameLoopController.GameLoopState.Stepping:
+                _loopStateBadge.text = "⏯️ PASO A PASO (STEPPING)";
+                _loopStateBadge.color = AccentCyan;
+                break;
+            case GameLoopController.GameLoopState.Stopped:
+                _loopStateBadge.text = "⏹️ DETENIDO (STOPPED)";
+                _loopStateBadge.color = AccentDanger;
+                break;
+        }
+    }
+
+    void OnLoopTelemetryReceived(GameLoopController.GameLoopTelemetry tele)
+    {
+        if (_loopTelemetryFps != null)
+        {
+            _loopTelemetryFps.text = $"• FPS Actual: <b>{tele.Fps:F1} FPS</b>";
+        }
+        if (_loopTelemetryDelta != null)
+        {
+            _loopTelemetryDelta.text = $"• DeltaTime (ms/cuadro): <b>{tele.DeltaTimeMs:F1} ms</b>";
+        }
+        if (_loopTelemetryFrames != null)
+        {
+            _loopTelemetryFrames.text = $"• Total Cuadros Procesados: <b>{tele.TotalFrames}</b>";
+        }
+        if (_loopTelemetryTime != null)
+        {
+            _loopTelemetryTime.text = $"• Tiempo de Juego: <b>{tele.GameTime:F1}s</b>  |  Real: <b>{tele.RealTime:F1}s</b>";
+        }
+    }
+
+    // ==========================================
+    // Footer / Barra Inferior de Navegación (6 Dots)
     // ==========================================
     void BuildFooter(Transform parent)
     {
@@ -1190,13 +1723,13 @@ public class PrimeraVentana : MonoBehaviour
         btnPrev.name = "BtnNavPrev";
         _navigationController.btnPrev = btnPrev;
 
-        // Indicadores circulares (Dots) de página
+        // Indicadores circulares (Dots) de página (6 Dots)
         var dotsContainer = Row(footerPanel.transform, 6);
-        Size(dotsContainer.gameObject, prefW: 110, prefH: 40);
+        Size(dotsContainer.gameObject, prefW: 130, prefH: 40);
         dotsContainer.childAlignment = TextAnchor.MiddleCenter;
 
-        var dotIndicators = new Image[5];
-        for (int i = 0; i < 5; i++)
+        var dotIndicators = new Image[6];
+        for (int i = 0; i < 6; i++)
         {
             int pageIdx = i;
             var dot = Panel(dotsContainer.transform, TextDimmed);
@@ -1217,7 +1750,7 @@ public class PrimeraVentana : MonoBehaviour
         Size(div.gameObject, prefW: 1, prefH: 30);
 
         // Barra de estado interactiva
-        _statusText = CreateText(footerPanel.transform, "💡 Interactúa con los botones para probar el arrastre, fuentes, scripts o navegación.", 12, TextAnchor.MiddleLeft, TextMuted, FontStyle.Italic);
+        _statusText = CreateText(footerPanel.transform, "💡 Interactúa con los botones para probar el bucle de videojuego, los 8 sprites animados, arrastre y fuentes.", 12, TextAnchor.MiddleLeft, TextMuted, FontStyle.Italic);
         Flex(_statusText.gameObject, flexW: 1);
 
         // Botón Inicio Rápido
@@ -1257,6 +1790,7 @@ public class PrimeraVentana : MonoBehaviour
             $"• <b>Factor de Escala UI:</b> {scale:F2}x\n" +
             $"• <b>Páginas Registradas:</b> {_navigationController.PageCount}\n" +
             $"• <b>Página Actual:</b> #{_navigationController.CurrentPageIndex + 1}\n" +
+            $"• <b>FPS en Vivo:</b> {(_gameLoopController != null ? _gameLoopController.CurrentFps : 60f):F0} FPS\n" +
             $"• <b>Historial Back:</b> {(_navigationController.CanGoBack ? "Disponible" : "Vacío")}";
     }
 
@@ -1266,7 +1800,7 @@ public class PrimeraVentana : MonoBehaviour
         string entry = $"<color=#3D82FF>[{timestamp}]</color> {message}";
         _logEntries.Insert(0, entry);
 
-        if (_logEntries.Count > 12)
+        if (_logEntries.Count > 14)
         {
             _logEntries.RemoveAt(_logEntries.Count - 1);
         }
@@ -1287,33 +1821,38 @@ public class PrimeraVentana : MonoBehaviour
         Flex(card.gameObject, flexW: 1, flexH: 1);
 
         var cardV = card.gameObject.AddComponent<VerticalLayoutGroup>();
-        cardV.padding = new RectOffset(18, 18, 16, 16);
-        cardV.spacing = 8;
+        cardV.padding = new RectOffset(16, 16, 14, 14);
+        cardV.spacing = 6;
         cardV.childControlWidth = true;
         cardV.childControlHeight = true;
         cardV.childForceExpandWidth = true;
         cardV.childForceExpandHeight = false;
 
         var topBadge = CreateBadge(card.transform, "MÓDULO INTERACTIVO", accent);
-        Size(topBadge.gameObject, prefH: 22);
+        Size(topBadge.gameObject, prefH: 20);
 
-        var t = CreateText(card.transform, title, 15, TextAnchor.MiddleLeft, TextWhite, FontStyle.Bold);
-        Size(t.gameObject, prefH: 22);
+        var t = CreateText(card.transform, title, 14, TextAnchor.MiddleLeft, TextWhite, FontStyle.Bold);
+        Size(t.gameObject, prefH: 20);
 
-        var d = CreateText(card.transform, description, 12, TextAnchor.UpperLeft, TextMuted);
+        var d = CreateText(card.transform, description, 11, TextAnchor.UpperLeft, TextMuted);
         Flex(d.gameObject, flexH: 1);
 
         var b = CreateButton(card.transform, btnLabel, accent, onAction);
-        Size(b.gameObject, prefH: 36);
+        Size(b.gameObject, prefH: 32);
+    }
+
+    Image CreateBadge(Transform parent, string text, Color color, out Text labelText)
+    {
+        var badge = Panel(parent, new Color(color.r, color.g, color.b, 0.22f));
+        badge.name = "Badge_" + text;
+        labelText = CreateText(badge.transform, text, 10, TextAnchor.MiddleCenter, color, FontStyle.Bold);
+        Stretch(labelText.rectTransform, Vector2.zero, Vector2.one);
+        return badge;
     }
 
     Image CreateBadge(Transform parent, string text, Color color)
     {
-        var badge = Panel(parent, new Color(color.r, color.g, color.b, 0.22f));
-        badge.name = "Badge_" + text;
-        var t = CreateText(badge.transform, text, 10, TextAnchor.MiddleCenter, color, FontStyle.Bold);
-        Stretch(t.rectTransform, Vector2.zero, Vector2.one);
-        return badge;
+        return CreateBadge(parent, text, color, out _);
     }
 
     Button CreateIconButton(Transform parent, string label, Color bg, float width, float height, Action onClick)
@@ -1449,7 +1988,7 @@ public class PrimeraVentana : MonoBehaviour
     }
 
     // ==========================================
-    // Generadores Procedurales de Texturas y Formas
+    // Generadores Procedurales de Texturas y Formas Básicas
     // ==========================================
     void GenerateProceduralSprites()
     {
@@ -1458,6 +1997,301 @@ public class PrimeraVentana : MonoBehaviour
         _diamondSprite = MakeDiamondTexture(64);
         _starSprite    = MakeStarTexture(64);
         _shieldSprite  = MakeShieldTexture(64);
+    }
+
+    // ==========================================
+    // Generadores Procedurales de los 4 Sets de Ocho (8) Sprites
+    // ==========================================
+    void Generate8SpriteSets()
+    {
+        // 1. 🔥 Fuego / Hoguera Mágica (8 cuadros de llama oscilante y ascuas)
+        for (int i = 0; i < 8; i++)
+        {
+            _fireSprites[i] = MakeFlameFrameTexture(64, i, 8);
+        }
+
+        // 2. 🏃‍♂️ Ciclo de Caminata / Walk Cycle (8 cuadros de movimiento)
+        for (int i = 0; i < 8; i++)
+        {
+            _walkSprites[i] = MakeWalkFrameTexture(64, i, 8);
+        }
+
+        // 3. 💎 Gema / Moneda 3D Giratoria (8 fases de rotación)
+        for (int i = 0; i < 8; i++)
+        {
+            _gemSprites[i] = MakeGem3DFrameTexture(64, i, 8);
+        }
+
+        // 4. ⚡ Orbe de Energía / Pulso Mágico (8 fases de pulso y plasma)
+        for (int i = 0; i < 8; i++)
+        {
+            _energySprites[i] = MakeEnergyFrameTexture(64, i, 8);
+        }
+    }
+
+    /// <summary>
+    /// Genera 1 cuadro de llama de fuego de 8 cuadros (animación en bucle estilo tutorial).
+    /// </summary>
+    static Sprite MakeFlameFrameTexture(int size, int frameIndex, int totalFrames)
+    {
+        var tex = new Texture2D(size, size, TextureFormat.RGBA32, false) { filterMode = FilterMode.Bilinear };
+        float progress = (float)frameIndex / totalFrames;
+        float angle = progress * Mathf.PI * 2f;
+
+        float flameHeightOffset = Mathf.Sin(angle) * 4f;
+        float flameTipCurve = Mathf.Cos(angle) * 7f;
+        float flameSecondaryCurve = Mathf.Sin(angle * 2f) * 3f;
+
+        Vector2 baseCenter = new Vector2(size * 0.5f, size * 0.20f);
+
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                float ny = (float)y / size;
+                if (ny < 0.12f || ny > 0.88f)
+                {
+                    tex.SetPixel(x, y, Color.clear);
+                    continue;
+                }
+
+                // Curva de la llama según la altura
+                float curve = (ny - 0.15f) * (flameTipCurve + flameSecondaryCurve * (1f - ny));
+                float cx = size * 0.5f + curve;
+                float distH = Mathf.Abs(x - cx);
+
+                // Ancho de la llama según la altura
+                float maxHalfWidth = (1f - Mathf.Pow((ny - 0.15f) / (0.75f + flameHeightOffset * 0.01f), 1.3f)) * (size * 0.36f);
+
+                if (distH <= maxHalfWidth && maxHalfWidth > 0f)
+                {
+                    float factor = 1f - (distH / maxHalfWidth);
+                    float coreFactor = Mathf.Clamp01((1f - (distH / (maxHalfWidth * 0.45f))) * (1.2f - ny));
+
+                    // Color degradado: Núcleo amarillo brillante -> Cuerpo naranja -> Borde rojo fuego
+                    Color col;
+                    if (coreFactor > 0.4f)
+                    {
+                        col = Color.Lerp(new Color(1f, 0.6f, 0.1f, 1f), new Color(1f, 0.95f, 0.4f, 1f), (coreFactor - 0.4f) / 0.6f);
+                    }
+                    else
+                    {
+                        col = Color.Lerp(new Color(0.9f, 0.15f, 0.05f, 0.95f), new Color(1f, 0.6f, 0.1f, 1f), factor);
+                    }
+
+                    // Transparencia suave en los bordes
+                    float alpha = Mathf.Clamp01((maxHalfWidth - distH) * 1.5f);
+                    col.a *= alpha;
+                    tex.SetPixel(x, y, col);
+                }
+                else
+                {
+                    // Ascuas flotantes animadas
+                    float emberY1 = ((progress + 0.2f) % 1f) * size * 0.8f + size * 0.15f;
+                    float emberX1 = size * 0.5f + Mathf.Sin(progress * 8f) * 12f;
+                    float distE1 = Vector2.Distance(new Vector2(x, y), new Vector2(emberX1, emberY1));
+
+                    float emberY2 = ((progress + 0.65f) % 1f) * size * 0.75f + size * 0.2f;
+                    float emberX2 = size * 0.5f + Mathf.Cos(progress * 6f) * 14f;
+                    float distE2 = Vector2.Distance(new Vector2(x, y), new Vector2(emberX2, emberY2));
+
+                    if (distE1 < 2.2f)
+                    {
+                        tex.SetPixel(x, y, new Color(1f, 0.85f, 0.2f, 1f - distE1 / 2.2f));
+                    }
+                    else if (distE2 < 1.8f)
+                    {
+                        tex.SetPixel(x, y, new Color(1f, 0.5f, 0.1f, 1f - distE2 / 1.8f));
+                    }
+                    else
+                    {
+                        tex.SetPixel(x, y, Color.clear);
+                    }
+                }
+            }
+        }
+        tex.Apply();
+        return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect);
+    }
+
+    /// <summary>
+    /// Genera 1 cuadro del ciclo de caminata (Walk Cycle) de 8 fotogramas.
+    /// </summary>
+    static Sprite MakeWalkFrameTexture(int size, int frameIndex, int totalFrames)
+    {
+        var tex = new Texture2D(size, size, TextureFormat.RGBA32, false) { filterMode = FilterMode.Bilinear };
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+                tex.SetPixel(x, y, Color.clear);
+
+        float phase = (float)frameIndex / totalFrames * Mathf.PI * 2f;
+        float bob = Mathf.Abs(Mathf.Sin(phase * 2f)) * 3f; // Rebote vertical del cuerpo
+        float legSwing1 = Mathf.Sin(phase) * 14f;
+        float legSwing2 = -Mathf.Sin(phase) * 14f;
+        float armSwing1 = -Mathf.Sin(phase) * 12f;
+        float armSwing2 = Mathf.Sin(phase) * 12f;
+
+        Vector2 headCenter = new Vector2(size * 0.5f, size * 0.72f + bob);
+        Vector2 bodyCenter = new Vector2(size * 0.5f, size * 0.50f + bob);
+        Vector2 hipCenter  = new Vector2(size * 0.5f, size * 0.38f + bob);
+
+        // Dibujar Cabeza (Círculo cian/azul)
+        DrawCircleOnTex(tex, headCenter, 8f, AccentCyan);
+
+        // Dibujar Torso (Cuerpo atlético)
+        DrawCapsuleOnTex(tex, headCenter - new Vector2(0, 8), hipCenter, 6f, AccentPrimary);
+
+        // Dibujar Brazo Trasero
+        Vector2 armBackEnd = bodyCenter + new Vector2(armSwing2, -10f);
+        DrawCapsuleOnTex(tex, bodyCenter, armBackEnd, 3f, new Color(0.18f, 0.38f, 0.75f, 0.85f));
+
+        // Dibujar Pierna Trasera
+        Vector2 legBackEnd = hipCenter + new Vector2(legSwing2, -16f);
+        DrawCapsuleOnTex(tex, hipCenter, legBackEnd, 4f, new Color(0.15f, 0.35f, 0.70f, 0.9f));
+
+        // Dibujar Pierna Delantera
+        Vector2 legFrontEnd = hipCenter + new Vector2(legSwing1, -16f);
+        DrawCapsuleOnTex(tex, hipCenter, legFrontEnd, 4.5f, AccentSuccess);
+
+        // Dibujar Brazo Delantero
+        Vector2 armFrontEnd = bodyCenter + new Vector2(armSwing1, -10f);
+        DrawCapsuleOnTex(tex, bodyCenter, armFrontEnd, 3.5f, TextWhite);
+
+        tex.Apply();
+        return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect);
+    }
+
+    /// <summary>
+    /// Genera 1 cuadro de Gema 3D giratoria de 8 fases (rotación 360°).
+    /// </summary>
+    static Sprite MakeGem3DFrameTexture(int size, int frameIndex, int totalFrames)
+    {
+        var tex = new Texture2D(size, size, TextureFormat.RGBA32, false) { filterMode = FilterMode.Bilinear };
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+                tex.SetPixel(x, y, Color.clear);
+
+        float angle = (float)frameIndex / totalFrames * Mathf.PI * 2f;
+        float widthScale = Mathf.Abs(Mathf.Cos(angle)) * 0.7f + 0.3f;
+        float shineOffset = Mathf.Sin(angle) * (size * 0.25f);
+
+        Vector2 center = new Vector2(size * 0.5f, size * 0.5f);
+        float halfH = size * 0.38f;
+        float halfW = size * 0.36f * widthScale;
+
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                float dx = Mathf.Abs(x - center.x);
+                float dy = Mathf.Abs(y - center.y);
+
+                // Forma de rombo facetado
+                if ((dx / Mathf.Max(halfW, 1f) + dy / halfH) <= 1.0f)
+                {
+                    // Lado izquierdo vs derecho según rotación
+                    bool isLeftFacet = (x < center.x);
+                    Color facetBase = isLeftFacet ? AccentPurple : new Color(0.78f, 0.50f, 1.0f, 1f);
+
+                    // Destello de brillo especular
+                    float shineDist = Mathf.Abs((x - center.x) - shineOffset) + Mathf.Abs(y - (center.y + halfH * 0.3f));
+                    if (shineDist < 6f)
+                    {
+                        facetBase = Color.Lerp(facetBase, TextWhite, (6f - shineDist) / 6f);
+                    }
+
+                    tex.SetPixel(x, y, facetBase);
+                }
+            }
+        }
+
+        tex.Apply();
+        return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect);
+    }
+
+    /// <summary>
+    /// Genera 1 cuadro del Orbe de Energía / Pulso Mágico de 8 cuadros.
+    /// </summary>
+    static Sprite MakeEnergyFrameTexture(int size, int frameIndex, int totalFrames)
+    {
+        var tex = new Texture2D(size, size, TextureFormat.RGBA32, false) { filterMode = FilterMode.Bilinear };
+        float progress = (float)frameIndex / totalFrames;
+        float angle = progress * Mathf.PI * 2f;
+
+        Vector2 center = new Vector2(size * 0.5f, size * 0.5f);
+        float pulseRadius = size * 0.22f + Mathf.Sin(angle) * 5f;
+        float ringRadius  = size * 0.36f + Mathf.Cos(angle) * 4f;
+
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                float dist = Vector2.Distance(new Vector2(x, y), center);
+
+                if (dist <= pulseRadius)
+                {
+                    // Núcleo brillante
+                    float coreFactor = 1f - (dist / pulseRadius);
+                    Color coreCol = Color.Lerp(AccentCyan, TextWhite, Mathf.Pow(coreFactor, 2f));
+                    tex.SetPixel(x, y, coreCol);
+                }
+                else if (Mathf.Abs(dist - ringRadius) < 3.5f)
+                {
+                    // Anillo exterior de plasma
+                    float ringFactor = 1f - (Mathf.Abs(dist - ringRadius) / 3.5f);
+                    Color ringCol = new Color(AccentCyan.r, AccentCyan.g, AccentCyan.b, ringFactor * 0.8f);
+                    tex.SetPixel(x, y, ringCol);
+                }
+                else
+                {
+                    tex.SetPixel(x, y, Color.clear);
+                }
+            }
+        }
+
+        // Partículas orbitales de energía (4 chispas girando)
+        for (int p = 0; p < 4; p++)
+        {
+            float sparkAngle = angle + (p * Mathf.PI * 0.5f);
+            Vector2 sparkPos = center + new Vector2(Mathf.Cos(sparkAngle), Mathf.Sin(sparkAngle)) * ringRadius;
+            DrawCircleOnTex(tex, sparkPos, 2.5f, TextWhite);
+        }
+
+        tex.Apply();
+        return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect);
+    }
+
+    static void DrawCircleOnTex(Texture2D tex, Vector2 center, float radius, Color color)
+    {
+        int minX = Mathf.Max(0, (int)(center.x - radius - 1));
+        int maxX = Mathf.Min(tex.width - 1, (int)(center.x + radius + 1));
+        int minY = Mathf.Max(0, (int)(center.y - radius - 1));
+        int maxY = Mathf.Min(tex.height - 1, (int)(center.y + radius + 1));
+
+        for (int y = minY; y <= maxY; y++)
+        {
+            for (int x = minX; x <= maxX; x++)
+            {
+                float d = Vector2.Distance(new Vector2(x, y), center);
+                if (d <= radius)
+                {
+                    float alpha = Mathf.Clamp01(radius - d + 0.5f);
+                    Color c = color;
+                    c.a *= alpha;
+                    tex.SetPixel(x, y, c);
+                }
+            }
+        }
+    }
+
+    static void DrawCapsuleOnTex(Texture2D tex, Vector2 p1, Vector2 p2, float radius, Color color)
+    {
+        int steps = Mathf.Max(6, (int)Vector2.Distance(p1, p2));
+        for (int i = 0; i <= steps; i++)
+        {
+            Vector2 p = Vector2.Lerp(p1, p2, (float)i / steps);
+            DrawCircleOnTex(tex, p, radius, color);
+        }
     }
 
     static Sprite MakeRoundedTexture(int size = 64, int radius = 16)
