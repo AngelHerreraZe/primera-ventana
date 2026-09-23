@@ -106,6 +106,17 @@ public class PrimeraVentana : MonoBehaviour
     readonly Image[] _storyboardBorders = new Image[8];
     readonly Text[] _storyboardLabels = new Text[8];
 
+    // Módulo: Detección de Colisiones 2D & Físicas (Rigidbody2D / Colliders)
+    Collision2DController _collision2DController;
+    Text _colStateBadge;
+    Text _colTelemetryPos;
+    Text _colTelemetryVel;
+    Text _colTelemetryContact;
+    Text _colTelemetryStats;
+    Text _colColliderInfo;
+    Text _colConsoleContent;
+    readonly List<string> _colLogEntries = new List<string>();
+
     // Presets de dispositivos
     struct DevicePreset
     {
@@ -147,6 +158,7 @@ public class PrimeraVentana : MonoBehaviour
         AddLog("✓ Módulo 'Controlar Fuentes' vinculado con FontController.");
         AddLog("✓ Módulo 'Fijar Scripts y Navegación' activo con NavigationController y ScriptBinder.");
         AddLog("✓ Módulo 'Bucle de Videojuego y Animación con 8 Sprites' activo con GameLoopController y SpriteAnimationLoop.");
+        AddLog("✓ Módulo 'Detección de Colisiones 2D' activo con Rigidbody2D, Colliders alineados y máquina de estados.");
 
         // Inicializar navegación en la página de inicio
         if (_navigationController != null)
@@ -182,11 +194,19 @@ public class PrimeraVentana : MonoBehaviour
         _navigationController = canvasGo.AddComponent<NavigationController>();
         _scriptBinder = canvasGo.AddComponent<ScriptBinder>();
         _gameLoopController = canvasGo.AddComponent<GameLoopController>();
+        _collision2DController = canvasGo.AddComponent<Collision2DController>();
 
         _navigationController.OnStatusLog = msg => AddLog(msg);
         _scriptBinder.OnStatusLog = msg => AddLog(msg);
         _scriptBinder.OnComponentsChanged = RefreshAttachedScriptsDisplay;
         _gameLoopController.OnStatusLog = msg => AddLog(msg);
+
+        // Callbacks del módulo de colisiones 2D
+        _collision2DController.OnStatusLog = msg => { AddLog(msg); AddCollisionLog(msg); };
+        _collision2DController.OnStateChanged = (state, reason) => UpdateCollisionStateUI(state, reason);
+        _collision2DController.OnCollisionRegistered = ev => OnCollisionEventReceived(ev);
+        _collision2DController.OnTriggerRegistered = ev => OnTriggerEventReceived(ev);
+        _collision2DController.OnTelemetryUpdated = telem => OnCollisionTelemetryReceived(telem);
 
         // 3. Fondo general
         var background = Panel(canvasGo.transform, BgDark);
@@ -206,7 +226,7 @@ public class PrimeraVentana : MonoBehaviour
         masterVGroup.childForceExpandWidth = true;
         masterVGroup.childForceExpandHeight = false;
 
-        // 5. Header / Barra Superior con Logo, Breadcrumbs y Pestañas (6 Pestañas)
+        // 5. Header / Barra Superior con Logo, Breadcrumbs y Pestañas (7 Pestañas)
         BuildHeader(masterContainer.transform);
 
         // 6. Área de Contenido Central (Páginas)
@@ -214,31 +234,33 @@ public class PrimeraVentana : MonoBehaviour
         contentArea.name = "ContentArea";
         Flex(contentArea.gameObject, flexH: 1);
 
-        // Construcción de las 6 Páginas Principales
+        // Construcción de las 7 Páginas Principales
         var page0 = BuildPageInicio(contentArea.transform);
         var page1 = BuildPageArrastrarSprite(contentArea.transform);
         var page2 = BuildPageControlFuentes(contentArea.transform);
         var page3 = BuildPageFijarScripts(contentArea.transform);
         var page4 = BuildPageNavegacionYDispositivos(contentArea.transform);
         var page5 = BuildPageBucleYAnimacion(contentArea.transform);
+        var page6 = BuildPageColisiones2D(contentArea.transform);
 
-        // Registrar 6 páginas en NavigationController
+        // Registrar 7 páginas en NavigationController
         _navigationController.RegisterPage("inicio", "Inicio", "🏠", page0, _navTabButtons[0], _navTabIndicators[0]);
         _navigationController.RegisterPage("sprites", "Arrastrar Sprite", "🎯", page1, _navTabButtons[1], _navTabIndicators[1]);
         _navigationController.RegisterPage("fuentes", "Control de Fuentes", "🔤", page2, _navTabButtons[2], _navTabIndicators[2]);
         _navigationController.RegisterPage("scripts", "Fijar Scripts", "🧩", page3, _navTabButtons[3], _navTabIndicators[3]);
         _navigationController.RegisterPage("navegacion", "Navegación & Pantalla", "🧭", page4, _navTabButtons[4], _navTabIndicators[4]);
         _navigationController.RegisterPage("bucle", "Bucle & 8 Sprites", "🎬", page5, _navTabButtons[5], _navTabIndicators[5]);
+        _navigationController.RegisterPage("colisiones", "Colisiones & Física 2D", "⚔️", page6, _navTabButtons[6], _navTabIndicators[6]);
 
-        // 7. Footer / Barra Inferior de Navegación y Estado (6 Dots)
+        // 7. Footer / Barra Inferior de Navegación y Estado (7 Dots)
         BuildFooter(masterContainer.transform);
     }
 
     // ==========================================
     // 1. Header y Barra de Navegación Superior
     // ==========================================
-    Button[] _navTabButtons = new Button[6];
-    Image[] _navTabIndicators = new Image[6];
+    Button[] _navTabButtons = new Button[7];
+    Image[] _navTabIndicators = new Image[7];
 
     void BuildHeader(Transform parent)
     {
@@ -285,27 +307,27 @@ public class PrimeraVentana : MonoBehaviour
 
         CreateSpacer(headerPanel.transform, flexW: 1);
 
-        // Pestañas Principales (6 Pestañas)
-        string[] tabLabels = { "🏠 Inicio", "🎯 Sprites", "🔤 Fuentes", "🧩 Scripts", "🧭 Navegación", "🎬 Bucle & 8 Sprites" };
+        // Pestañas Principales (7 Pestañas)
+        string[] tabLabels = { "🏠 Inicio", "🎯 Sprites", "🔤 Fuentes", "🧩 Scripts", "🧭 Navegación", "🎬 Bucle", "⚔️ Colisiones 2D" };
 
         for (int i = 0; i < tabLabels.Length; i++)
         {
             var tabBtnGo = Panel(headerPanel.transform, ButtonNormal);
             tabBtnGo.name = "TabBtn_" + i;
-            Size(tabBtnGo.gameObject, prefW: 145, prefH: 46);
+            Size(tabBtnGo.gameObject, prefW: 128, prefH: 46);
 
             var btn = tabBtnGo.gameObject.AddComponent<Button>();
             btn.targetGraphic = tabBtnGo;
 
             var tabVGroup = tabBtnGo.gameObject.AddComponent<VerticalLayoutGroup>();
-            tabVGroup.padding = new RectOffset(6, 6, 4, 3);
+            tabVGroup.padding = new RectOffset(4, 4, 4, 3);
             tabVGroup.spacing = 2;
             tabVGroup.childControlWidth = true;
             tabVGroup.childControlHeight = true;
             tabVGroup.childForceExpandWidth = true;
             tabVGroup.childForceExpandHeight = true;
 
-            var label = CreateText(tabBtnGo.transform, tabLabels[i], 11, TextAnchor.MiddleCenter, TextWhite, FontStyle.Bold);
+            var label = CreateText(tabBtnGo.transform, tabLabels[i], 10, TextAnchor.MiddleCenter, TextWhite, FontStyle.Bold);
             Flex(label.gameObject, flexH: 1);
 
             var indicator = Panel(tabBtnGo.transform, Color.clear);
@@ -359,28 +381,28 @@ public class PrimeraVentana : MonoBehaviour
             12, TextAnchor.MiddleLeft, TextMuted);
         Size(heroDesc.gameObject, prefH: 36);
 
-        // Grid 2x2 de Módulos Principales
+        // Grid 3x2 de Módulos Principales
         var rowModules1 = Row(leftCol.transform, 10);
         Flex(rowModules1.gameObject, flexH: 1);
+
+        CreateModuleCard(rowModules1.transform, "⚔️ Colisiones 2D",
+            "Detección de colisiones sólidas (paredes/piso no atravesables), triggers, alineación de colisionadores y máquina de estados.",
+            AccentCyan, "Abrir Módulo", () => _navigationController.NavigateTo(6));
 
         CreateModuleCard(rowModules1.transform, "🎬 Bucle & 8 Sprites",
             "Bucle de juego (Play, Pause, Step, TimeScale, FPS) y animación con 8 sprites en bucle continuo (Fuego, Caminata, Gema, Orbe).",
             AccentFlame, "Abrir Módulo", () => _navigationController.NavigateTo(5));
 
-        CreateModuleCard(rowModules1.transform, "🎯 Arrastrar Sprites",
-            "Mueve sprites con ratón o táctil. Genera nuevos sprites, resetea origen, cambia apariencias y bloquea arrastre.",
-            AccentPrimary, "Abrir Módulo", () => _navigationController.NavigateTo(1));
-
         var rowModules2 = Row(leftCol.transform, 10);
         Flex(rowModules2.gameObject, flexH: 1);
+
+        CreateModuleCard(rowModules2.transform, "🎯 Arrastrar Sprites",
+            "Mueve sprites con ratón o táctil. Genera nuevos sprites, resetea origen, cambia apariencias y bloquea arrastre.",
+            AccentPrimary, "Abrir Módulo", () => _navigationController.NavigateTo(1));
 
         CreateModuleCard(rowModules2.transform, "🔤 Control de Fuentes",
             "Ajusta tamaño (+/-), estilo (Bold/Italic), alineación, familia tipográfica, paleta de colores y efectos visuales.",
             AccentSuccess, "Abrir Módulo", () => _navigationController.NavigateTo(2));
-
-        CreateModuleCard(rowModules2.transform, "🧩 Fijar Scripts & Nav",
-            "Fija y desacopla componentes (AddComponent) en tiempo real con inspector en vivo y navegación con historial.",
-            AccentPurple, "Abrir Módulo", () => _navigationController.NavigateTo(3));
 
         // Columna Derecha: Métricas y Consola Rápida
         var rightCol = Column(page.transform, 12);
@@ -408,17 +430,20 @@ public class PrimeraVentana : MonoBehaviour
         var quickHead = CreateText(statusCard.transform, "⚡ Atajos Rápidos", 13, TextAnchor.MiddleLeft, TextWhite, FontStyle.Bold);
         Size(quickHead.gameObject, prefH: 20);
 
+        var bCol = CreateButton(statusCard.transform, "⚔️ Detección de Colisiones 2D", AccentCyan, () => _navigationController.NavigateTo(6));
+        Size(bCol.gameObject, prefH: 34);
+
         var b0 = CreateButton(statusCard.transform, "🎬 Bucle y 8 Sprites Animados", AccentFlame, () => _navigationController.NavigateTo(5));
-        Size(b0.gameObject, prefH: 36);
+        Size(b0.gameObject, prefH: 34);
 
         var b1 = CreateButton(statusCard.transform, "🎯 Probar Arrastre de Sprite", AccentPrimary, () => _navigationController.NavigateTo(1));
-        Size(b1.gameObject, prefH: 36);
+        Size(b1.gameObject, prefH: 34);
 
         var b2 = CreateButton(statusCard.transform, "🔤 Editar Tipografía", AccentSuccess, () => _navigationController.NavigateTo(2));
-        Size(b2.gameObject, prefH: 36);
+        Size(b2.gameObject, prefH: 34);
 
         var b3 = CreateButton(statusCard.transform, "🧩 Fijar Scripts a Objetos", AccentPurple, () => _navigationController.NavigateTo(3));
-        Size(b3.gameObject, prefH: 36);
+        Size(b3.gameObject, prefH: 34);
 
         return page.gameObject;
     }
@@ -1701,6 +1726,377 @@ public class PrimeraVentana : MonoBehaviour
     }
 
     // ==========================================
+    // PÁGINA 7: Detección de Colisiones 2D & Físicas (Rigidbody2D / Colliders)
+    // ==========================================
+    GameObject BuildPageColisiones2D(Transform parent)
+    {
+        var page = Panel(parent, Color.clear);
+        page.name = "Page_Colisiones2D";
+        Stretch(page.rectTransform, Vector2.zero, Vector2.one);
+
+        var hLayout = page.gameObject.AddComponent<HorizontalLayoutGroup>();
+        hLayout.spacing = 14;
+        hLayout.childControlWidth = true;
+        hLayout.childControlHeight = true;
+        hLayout.childForceExpandWidth = true;
+        hLayout.childForceExpandHeight = true;
+
+        // -------------------------------------------------------------
+        // Columna Izquierda: Controles del Personaje, Estado y Telemetría
+        // -------------------------------------------------------------
+        var leftCol = Column(page.transform, 10);
+        Flex(leftCol.gameObject, flexW: 1.25f);
+
+        // Header Card
+        var colHeadCard = Panel(leftCol.transform, CardBg);
+        Size(colHeadCard.gameObject, prefH: 72);
+        var colHeadV = colHeadCard.gameObject.AddComponent<VerticalLayoutGroup>();
+        colHeadV.padding = new RectOffset(16, 16, 10, 10);
+        colHeadV.spacing = 4;
+        colHeadV.childControlWidth = true;
+        colHeadV.childControlHeight = true;
+        colHeadV.childForceExpandWidth = true;
+        colHeadV.childForceExpandHeight = false;
+
+        var colHeadTitle = CreateText(colHeadCard.transform, "⚔️ Detección de Colisiones 2D & Físicas (Rigidbody2D)", 16, TextAnchor.MiddleLeft, TextWhite, FontStyle.Bold);
+        Size(colHeadTitle.gameObject, prefH: 22);
+        var colHeadDesc = CreateText(colHeadCard.transform, "El personaje no atraviesa paredes ni piso. Colisionador alineado al sprite con cambio de estado.", 11, TextAnchor.MiddleLeft, TextMuted);
+        Size(colHeadDesc.gameObject, prefH: 24);
+
+        // Panel de Control e Interacción del Personaje
+        var playerControlPanel = Panel(leftCol.transform, SidebarBg);
+        Flex(playerControlPanel.gameObject, flexH: 1.2f);
+        var pcV = playerControlPanel.gameObject.AddComponent<VerticalLayoutGroup>();
+        pcV.padding = new RectOffset(14, 14, 12, 12);
+        pcV.spacing = 8;
+        pcV.childControlWidth = true;
+        pcV.childControlHeight = true;
+        pcV.childForceExpandWidth = true;
+        pcV.childForceExpandHeight = false;
+
+        // Badge de Estado Actual (Criterio 1: Cambio de estado)
+        var rowState = Row(playerControlPanel.transform, 8);
+        Size(rowState.gameObject, prefH: 30);
+        var lblStateTitle = CreateText(rowState.transform, "Estado del Personaje:", 12, TextAnchor.MiddleLeft, TextWhite, FontStyle.Bold);
+        Size(lblStateTitle.gameObject, prefW: 145);
+
+        var stateBadgeImg = CreateBadge(rowState.transform, "🟢 EN PISO (GROUNDED)", AccentSuccess, out _colStateBadge);
+        Flex(stateBadgeImg.gameObject, flexW: 1);
+
+        // Guía de Teclado
+        var keyboardHint = CreateText(playerControlPanel.transform, "🎮 Teclado: [A]/[D] o [Flechas] Mover | [Espacio]/[W] Saltar | [Shift] Dash | [R] Reset", 11, TextAnchor.MiddleLeft, AccentCyan);
+        Size(keyboardHint.gameObject, prefH: 20);
+
+        // Botonera Táctil / D-Pad
+        var rowDpad1 = Row(playerControlPanel.transform, 8);
+        Size(rowDpad1.gameObject, prefH: 38);
+
+        var btnJump = CreateButton(rowDpad1.transform, "⬆️ SALTAR (Jump)", AccentSuccess, () => _collision2DController?.RequestJump());
+        Flex(btnJump.gameObject, flexW: 1);
+
+        var btnDash = CreateButton(rowDpad1.transform, "⚡ DASH RÁPIDO", AccentPurple, () => _collision2DController?.RequestDash());
+        Flex(btnDash.gameObject, flexW: 1);
+
+        var btnResetPos = CreateButton(rowDpad1.transform, "🔄 RESETEAR POSICIÓN", ButtonNormal, () => _collision2DController?.ResetPlayerPosition());
+        Flex(btnResetPos.gameObject, flexW: 1);
+
+        var rowDpad2 = Row(playerControlPanel.transform, 8);
+        Size(rowDpad2.gameObject, prefH: 38);
+
+        var btnMoveLeft = CreateButton(rowDpad2.transform, "◀ MOVER IZQUIERDA", AccentPrimary, () => _collision2DController?.SetHorizontalMovement(-1f));
+        Flex(btnMoveLeft.gameObject, flexW: 1);
+
+        var btnStop = CreateButton(rowDpad2.transform, "⏹ DETENER", ButtonNormal, () => _collision2DController?.SetHorizontalMovement(0f));
+        Flex(btnStop.gameObject, flexW: 0.8f);
+
+        var btnMoveRight = CreateButton(rowDpad2.transform, "MOVER DERECHA ▶", AccentPrimary, () => _collision2DController?.SetHorizontalMovement(1f));
+        Flex(btnMoveRight.gameObject, flexW: 1);
+
+        // Separador
+        var divCol1 = Panel(playerControlPanel.transform, BorderColor);
+        Size(divCol1.gameObject, prefH: 1);
+
+        // Telemetría de Contacto & Físicas en Vivo
+        var lblTelemHead = CreateText(playerControlPanel.transform, "📊 Telemetría de Contacto e Impactos:", 12, TextAnchor.MiddleLeft, TextWhite, FontStyle.Bold);
+        Size(lblTelemHead.gameObject, prefH: 20);
+
+        _colTelemetryPos = CreateText(playerControlPanel.transform, "• Posición: X: 0.00m, Y: -1.50m", 11, TextAnchor.MiddleLeft, TextMuted);
+        Size(_colTelemetryPos.gameObject, prefH: 18);
+
+        _colTelemetryVel = CreateText(playerControlPanel.transform, "• Velocidad Físicas: 0.00 m/s  |  Gravedad: 3.50", 11, TextAnchor.MiddleLeft, TextMuted);
+        Size(_colTelemetryVel.gameObject, prefH: 18);
+
+        _colTelemetryContact = CreateText(playerControlPanel.transform, "• Último Contacto: Superficie Inicial | Normal: (0.00, 1.00)", 11, TextAnchor.MiddleLeft, TextMuted);
+        Size(_colTelemetryContact.gameObject, prefH: 18);
+
+        _colTelemetryStats = CreateText(playerControlPanel.transform, "• Puntuación: 0 pts  |  Salud: 100%  |  Colisiones: 0  |  Triggers: 0", 11, TextAnchor.MiddleLeft, AccentSuccess, FontStyle.Bold);
+        Size(_colTelemetryStats.gameObject, prefH: 18);
+
+        // -------------------------------------------------------------
+        // Columna Derecha: Herramientas de Alineación, Entorno y Logs
+        // -------------------------------------------------------------
+        var rightCol = Column(page.transform, 10);
+        Flex(rightCol.gameObject, flexW: 1.15f);
+
+        // Tarjeta de Alineación del Colisionador (Criterio 2)
+        var alignCard = Panel(rightCol.transform, CardBg);
+        Size(alignCard.gameObject, prefH: 175);
+        var acV = alignCard.gameObject.AddComponent<VerticalLayoutGroup>();
+        acV.padding = new RectOffset(16, 16, 12, 12);
+        acV.spacing = 6;
+        acV.childControlWidth = true;
+        acV.childControlHeight = true;
+        acV.childForceExpandWidth = true;
+        acV.childForceExpandHeight = false;
+
+        var rowAlignHead = Row(alignCard.transform, 8);
+        Size(rowAlignHead.gameObject, prefH: 24);
+        var lblAlignTitle = CreateText(rowAlignHead.transform, "🎯 Calibración y Alineación de Colisionador", 13, TextAnchor.MiddleLeft, TextWhite, FontStyle.Bold);
+        Flex(lblAlignTitle.gameObject, flexW: 1);
+
+        var btnAutoFit = CreateButton(rowAlignHead.transform, "🎯 Auto-Alinear al Sprite", AccentSuccess, () =>
+        {
+            _collision2DController?.AutoFitColliderToSprite();
+            UpdateColliderInfoDisplay();
+        });
+        Size(btnAutoFit.gameObject, prefW: 180, prefH: 28);
+
+        // Selector de Forma del Colisionador
+        var rowShapes = Row(alignCard.transform, 6);
+        Size(rowShapes.gameObject, prefH: 30);
+        CreateButton(rowShapes.transform, "◽ BoxCollider2D", AccentPrimary, () =>
+        {
+            _collision2DController?.SetupPlayerCollider(Collision2DController.ColliderShapeType.Box2D);
+            UpdateColliderInfoDisplay();
+        });
+        CreateButton(rowShapes.transform, "⚪ CircleCollider2D", ButtonNormal, () =>
+        {
+            _collision2DController?.SetupPlayerCollider(Collision2DController.ColliderShapeType.Circle2D);
+            UpdateColliderInfoDisplay();
+        });
+        CreateButton(rowShapes.transform, "💊 CapsuleCollider2D", ButtonNormal, () =>
+        {
+            _collision2DController?.SetupPlayerCollider(Collision2DController.ColliderShapeType.Capsule2D);
+            UpdateColliderInfoDisplay();
+        });
+
+        // Botones de ajuste fino de tamaño y offset
+        var rowTuning = Row(alignCard.transform, 6);
+        Size(rowTuning.gameObject, prefH: 30);
+        CreateButton(rowTuning.transform, "Ancho -", ButtonNormal, () => { ModifyColliderSize(-0.1f, 0f); });
+        CreateButton(rowTuning.transform, "Ancho +", ButtonNormal, () => { ModifyColliderSize(0.1f, 0f); });
+        CreateButton(rowTuning.transform, "Alto -", ButtonNormal, () => { ModifyColliderSize(0f, -0.1f); });
+        CreateButton(rowTuning.transform, "Alto +", ButtonNormal, () => { ModifyColliderSize(0f, 0.1f); });
+        CreateButton(rowTuning.transform, "Offset Y +", ButtonNormal, () => { ModifyColliderOffset(0f, 0.1f); });
+        CreateButton(rowTuning.transform, "Offset Y -", ButtonNormal, () => { ModifyColliderOffset(0f, -0.1f); });
+
+        // Info y Wireframe Toggle
+        var rowWireframe = Row(alignCard.transform, 6);
+        Size(rowWireframe.gameObject, prefH: 26);
+        _colColliderInfo = CreateText(rowWireframe.transform, "Colisionador: Box2D (1.20m x 1.20m, Offset: 0,0)", 11, TextAnchor.MiddleLeft, TextMuted);
+        Flex(_colColliderInfo.gameObject, flexW: 1);
+
+        var btnToggleWire = CreateButton(rowWireframe.transform, "👁️ Wireframe Verde", AccentCyan, () =>
+        {
+            if (_collision2DController != null)
+            {
+                _collision2DController.showColliderWireframe = !_collision2DController.showColliderWireframe;
+                AddLog($"👁️ Wireframe de colisionador: {(_collision2DController.showColliderWireframe ? "Visible" : "Oculto")}");
+            }
+        });
+        Size(btnToggleWire.gameObject, prefW: 140, prefH: 26);
+
+        // Tarjeta de Presets de Escena y Ajustes del Mundo
+        var worldCard = Panel(rightCol.transform, CardBg);
+        Size(worldCard.gameObject, prefH: 155);
+        var wcV = worldCard.gameObject.AddComponent<VerticalLayoutGroup>();
+        wcV.padding = new RectOffset(16, 16, 12, 12);
+        wcV.spacing = 6;
+        wcV.childControlWidth = true;
+        wcV.childControlHeight = true;
+        wcV.childForceExpandWidth = true;
+        wcV.childForceExpandHeight = false;
+
+        var lblWorldTitle = CreateText(worldCard.transform, "🏟️ Escenarios Preconfigurados y Ajustes de Física", 13, TextAnchor.MiddleLeft, TextWhite, FontStyle.Bold);
+        Size(lblWorldTitle.gameObject, prefH: 20);
+
+        var rowPresets = Row(worldCard.transform, 6);
+        Size(rowPresets.gameObject, prefH: 30);
+        CreateButton(rowPresets.transform, "🏠 Habitación Sólida", AccentPrimary, () => _collision2DController?.LoadPreset(Collision2DController.ScenePreset.HabitacionSolida));
+        CreateButton(rowPresets.transform, "📦 Plataformas & Cajas", ButtonNormal, () => _collision2DController?.LoadPreset(Collision2DController.ScenePreset.PlataformasYCajas));
+        CreateButton(rowPresets.transform, "⭐ Circuito Triggers", ButtonNormal, () => _collision2DController?.LoadPreset(Collision2DController.ScenePreset.CircuitoTriggers));
+        CreateButton(rowPresets.transform, "🚀 Trampolines", ButtonNormal, () => _collision2DController?.LoadPreset(Collision2DController.ScenePreset.ParqueTrampolines));
+
+        var rowPhysicProps = Row(worldCard.transform, 6);
+        Size(rowPhysicProps.gameObject, prefH: 30);
+        CreateButton(rowPhysicProps.transform, "Grav: 1.5 (Baja)", ButtonNormal, () => _collision2DController?.SetGravity(1.5f));
+        CreateButton(rowPhysicProps.transform, "Grav: 3.5 (Normal)", AccentPrimary, () => _collision2DController?.SetGravity(3.5f));
+        CreateButton(rowPhysicProps.transform, "Grav: 6.0 (Pesada)", ButtonNormal, () => _collision2DController?.SetGravity(6.0f));
+        CreateButton(rowPhysicProps.transform, "Grav: Invertida", AccentFlame, () => _collision2DController?.SetGravity(-3.5f));
+
+        var rowMatProps = Row(worldCard.transform, 6);
+        Size(rowMatProps.gameObject, prefH: 30);
+        CreateButton(rowMatProps.transform, "Rebote: 0.0", AccentSuccess, () => _collision2DController?.SetBounciness(0.0f));
+        CreateButton(rowMatProps.transform, "Rebote: 0.5", ButtonNormal, () => _collision2DController?.SetBounciness(0.5f));
+        CreateButton(rowMatProps.transform, "Rebote: 0.9", ButtonNormal, () => _collision2DController?.SetBounciness(0.9f));
+        CreateButton(rowMatProps.transform, "Fricción: Hielo", ButtonNormal, () => _collision2DController?.SetFriction(0.02f));
+        CreateButton(rowMatProps.transform, "Fricción: Normal", ButtonNormal, () => _collision2DController?.SetFriction(0.4f));
+
+        // Consola de Registro de Colisiones en Tiempo Real
+        var logCard = Panel(rightCol.transform, SidebarBg);
+        Flex(logCard.gameObject, flexH: 1);
+        var logV = logCard.gameObject.AddComponent<VerticalLayoutGroup>();
+        logV.padding = new RectOffset(14, 14, 10, 10);
+        logV.spacing = 6;
+        logV.childControlWidth = true;
+        logV.childControlHeight = true;
+        logV.childForceExpandWidth = true;
+        logV.childForceExpandHeight = false;
+
+        var rowLogHead = Row(logCard.transform, 6);
+        Size(rowLogHead.gameObject, prefH: 22);
+        var lblLogTitle = CreateText(rowLogHead.transform, "💥 Registro de Colisiones y Triggers en Vivo:", 12, TextAnchor.MiddleLeft, TextWhite, FontStyle.Bold);
+        Flex(lblLogTitle.gameObject, flexW: 1);
+
+        var btnClearColLogs = CreateButton(rowLogHead.transform, "Limpiar", ButtonNormal, () =>
+        {
+            _colLogEntries.Clear();
+            if (_colConsoleContent != null) _colConsoleContent.text = "Consola de colisiones limpia.";
+        });
+        Size(btnClearColLogs.gameObject, prefW: 70, prefH: 22);
+
+        _colConsoleContent = CreateText(logCard.transform, "Esperando eventos de colisión con paredes, piso o triggers...", 10, TextAnchor.UpperLeft, TextMuted);
+        Flex(_colConsoleContent.gameObject, flexH: 1);
+
+        return page.gameObject;
+    }
+
+    void ModifyColliderSize(float dx, float dy)
+    {
+        if (_collision2DController == null) return;
+        Vector2 cur = _collision2DController.colliderSize;
+        _collision2DController.SetColliderSize(new Vector2(cur.x + dx, cur.y + dy));
+        UpdateColliderInfoDisplay();
+    }
+
+    void ModifyColliderOffset(float dx, float dy)
+    {
+        if (_collision2DController == null) return;
+        Vector2 cur = _collision2DController.colliderOffset;
+        _collision2DController.SetColliderOffset(new Vector2(cur.x + dx, cur.y + dy));
+        UpdateColliderInfoDisplay();
+    }
+
+    void UpdateColliderInfoDisplay()
+    {
+        if (_colColliderInfo != null && _collision2DController != null)
+        {
+            _colColliderInfo.text = $"Colisionador: {_collision2DController.activeColliderShape} ({_collision2DController.colliderSize.x:F2}m x {_collision2DController.colliderSize.y:F2}m, Offset: {_collision2DController.colliderOffset:F2})";
+        }
+    }
+
+    void UpdateCollisionStateUI(Collision2DController.CharacterState state, string reason)
+    {
+        if (_colStateBadge == null) return;
+
+        switch (state)
+        {
+            case Collision2DController.CharacterState.Idle:
+                _colStateBadge.text = "🔵 EN REPOSO (IDLE)";
+                _colStateBadge.color = AccentCyan;
+                break;
+            case Collision2DController.CharacterState.Walking:
+                _colStateBadge.text = "🚶‍♂️ CAMINANDO (WALKING)";
+                _colStateBadge.color = AccentPrimary;
+                break;
+            case Collision2DController.CharacterState.JumpingInAir:
+                _colStateBadge.text = "🟣 EN EL AIRE (IN AIR)";
+                _colStateBadge.color = AccentPurple;
+                break;
+            case Collision2DController.CharacterState.Grounded:
+                _colStateBadge.text = "🟢 EN PISO SÓLIDO (GROUNDED)";
+                _colStateBadge.color = AccentSuccess;
+                break;
+            case Collision2DController.CharacterState.WallTouchLeft:
+                _colStateBadge.text = "🟠 CONTACTO PARED IZQUIERDA";
+                _colStateBadge.color = AccentWarning;
+                break;
+            case Collision2DController.CharacterState.WallTouchRight:
+                _colStateBadge.text = "🟠 CONTACTO PARED DERECHA";
+                _colStateBadge.color = AccentWarning;
+                break;
+            case Collision2DController.CharacterState.CeilingImpact:
+                _colStateBadge.text = "🔥 CHOQUE CON TECHO (CEILING)";
+                _colStateBadge.color = AccentFlame;
+                break;
+            case Collision2DController.CharacterState.Bounced:
+                _colStateBadge.text = "🚀 REBOTE EN TRAMPOLÍN";
+                _colStateBadge.color = new Color(0.94f, 0.27f, 0.85f, 1f);
+                break;
+            case Collision2DController.CharacterState.TriggerCollected:
+                _colStateBadge.text = "⭐ GEMA / TRIGGER RECOGIDO";
+                _colStateBadge.color = new Color(1.0f, 0.85f, 0.20f, 1f);
+                break;
+            case Collision2DController.CharacterState.HazardDamaged:
+                _colStateBadge.text = "🔴 DAÑO POR LAVA / PELIGRO";
+                _colStateBadge.color = AccentDanger;
+                break;
+            case Collision2DController.CharacterState.PushingObject:
+                _colStateBadge.text = "📦 EMPUJANDO CAJA FÍSICA";
+                _colStateBadge.color = AccentCyan;
+                break;
+        }
+    }
+
+    void OnCollisionEventReceived(Collision2DController.CollisionEventData ev)
+    {
+        AddCollisionLog($"💥 [SÓLIDO] Objeto: <b>{ev.objectName}</b> | Normal: ({ev.contactNormal.x:F2}, {ev.contactNormal.y:F2}) | Vel: {ev.relativeVelocity:F1}m/s");
+    }
+
+    void OnTriggerEventReceived(Collision2DController.TriggerEventData ev)
+    {
+        AddCollisionLog($"⭐ [TRIGGER] <b>{ev.triggerName}</b> ({ev.triggerType}) | Puntos: +{ev.scoreGained}");
+    }
+
+    void OnCollisionTelemetryReceived(Collision2DController.TelemetryData telem)
+    {
+        if (_colTelemetryPos != null)
+        {
+            _colTelemetryPos.text = $"• Posición: <b>X: {telem.position.x:F2}m, Y: {telem.position.y:F2}m</b>";
+        }
+        if (_colTelemetryVel != null)
+        {
+            _colTelemetryVel.text = $"• Velocidad Físicas: <b>{telem.velocity.magnitude:F2} m/s</b> ({telem.velocity.x:F1}, {telem.velocity.y:F1})";
+        }
+        if (_colTelemetryContact != null)
+        {
+            string contactInfo = telem.isGrounded ? "En Piso Sólido" : (telem.isTouchingWall ? "En Pared Sólida" : (telem.isTouchingCeiling ? "En Techo" : "En Vuelo Libre"));
+            _colTelemetryContact.text = $"• Contacto Activo: <b>{contactInfo}</b>  |  Estado: <b>{telem.currentState}</b>";
+        }
+        if (_colTelemetryStats != null)
+        {
+            _colTelemetryStats.text = $"• Puntuación: <b>{telem.score} pts</b>  |  Salud: <b>{telem.health}%</b>  |  Colisiones: <b>{telem.totalCollisions}</b>  |  Triggers: <b>{telem.totalTriggers}</b>";
+        }
+    }
+
+    void AddCollisionLog(string message)
+    {
+        string timestamp = DateTime.Now.ToString("HH:mm:ss");
+        string entry = $"<color=#00E5FF>[{timestamp}]</color> {message}";
+        _colLogEntries.Insert(0, entry);
+
+        if (_colLogEntries.Count > 10)
+        {
+            _colLogEntries.RemoveAt(_colLogEntries.Count - 1);
+        }
+
+        if (_colConsoleContent != null)
+        {
+            _colConsoleContent.text = string.Join("\n", _colLogEntries);
+        }
+    }
+
+    // ==========================================
     // Footer / Barra Inferior de Navegación (6 Dots)
     // ==========================================
     void BuildFooter(Transform parent)
@@ -1723,13 +2119,13 @@ public class PrimeraVentana : MonoBehaviour
         btnPrev.name = "BtnNavPrev";
         _navigationController.btnPrev = btnPrev;
 
-        // Indicadores circulares (Dots) de página (6 Dots)
+        // Indicadores circulares (Dots) de página (7 Dots)
         var dotsContainer = Row(footerPanel.transform, 6);
-        Size(dotsContainer.gameObject, prefW: 130, prefH: 40);
+        Size(dotsContainer.gameObject, prefW: 145, prefH: 40);
         dotsContainer.childAlignment = TextAnchor.MiddleCenter;
 
-        var dotIndicators = new Image[6];
-        for (int i = 0; i < 6; i++)
+        var dotIndicators = new Image[7];
+        for (int i = 0; i < 7; i++)
         {
             int pageIdx = i;
             var dot = Panel(dotsContainer.transform, TextDimmed);
